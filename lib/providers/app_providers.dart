@@ -33,13 +33,15 @@ class MediaServersNotifier extends StateNotifier<List<MediaServer>> {
   }
 
   Timer? _healthTimer;
+  Timer? _initialCheckTimer;
   bool _checking = false;
 
   void _startHealthCheck() {
     _healthTimer?.cancel();
     _healthTimer = Timer.periodic(const Duration(seconds: 60), (_) => _checkConnections());
-    // 首次延迟 3 秒检测（等服务器列表加载完成）
-    Future.delayed(const Duration(seconds: 3), () => _checkConnections());
+    // 首次延迟 3 秒检测（等服务器列表加载完成）；可取消，避免 dispose 后仍触发
+    _initialCheckTimer?.cancel();
+    _initialCheckTimer = Timer(const Duration(seconds: 3), _checkConnections);
   }
 
   Future<void> _checkConnections() async {
@@ -68,6 +70,7 @@ class MediaServersNotifier extends StateNotifier<List<MediaServer>> {
   @override
   void dispose() {
     _healthTimer?.cancel();
+    _initialCheckTimer?.cancel();
     super.dispose();
   }
 

@@ -1,15 +1,30 @@
-// HomeScreen 白屏复现测试：pump 后捕获 build/layout 阶段异常
+// HomeScreen 冒烟测试：验证能无异常完成构建/布局，且不泄漏定时器。
+// 若此处改为「只收集不断言」，测试就失去了证明能力（TDD：测试必须能失败）。
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:lanplayer/screens/home/home_screen.dart';
+import 'package:lanplayer/services/storage_service.dart';
 
 void main() {
-  testWidgets('HomeScreen smoke build', (tester) async {
+  setUp(() async {
+    // 测试环境注入 SharedPreferences 内存实现，否则平台通道抛 MissingPluginException，
+    // 且多个 provider 在构建时同步读取 StorageService，未初始化会抛 LateInitializationError
+    SharedPreferences.setMockInitialValues({});
+    await StorageService.init();
+  });
+
+  testWidgets('HomeScreen 可无异常构建且不泄漏定时器', (tester) async {
     final errors = <FlutterErrorDetails>[];
     final oldOnError = FlutterError.onError;
     FlutterError.onError = (details) {
+      // DispersionGlass 自定义 shader 在测试软渲染器下的已知噪音（引擎级，非应用 bug）
+      if (details.exceptionAsString().contains('Sampler index out of bounds')) {
+        debugPrint('[test] 忽略 shader 测试环境噪音');
+        return;
+      }
       errors.add(details);
       // 吞掉，继续跑，收集所有异常
     };
@@ -24,16 +39,23 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pump(const Duration(milliseconds: 400));
-    } catch (e) {
-      errors.add(FlutterErrorDetails(exception: e, library: 'test'));
     } finally {
       FlutterError.onError = oldOnError;
     }
 
-    debugPrint('=== 捕获异常数: ${errors.length} ===');
+    // 卸载整棵树 → 触发所有 dispose → 取消 widget 内定时器
+    // （MediaServersNotifier 的周期健康检查由 ProviderScope dispose 一并取消）
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+
     for (final e in errors) {
-      debugPrint('--- ${e.exception}');
-      debugPrint('${e.stack}');
+      debugPrint('--- 捕获异常: ${e.exception}');
     }
+
+    expect(
+      errors,
+      isEmpty,
+      reason: 'HomeScreen 构建/布局阶段不应抛出异常，实际捕获 ${errors.length} 个',
+    );
   });
 }
