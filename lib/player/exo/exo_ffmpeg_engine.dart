@@ -83,9 +83,21 @@ class ExoFFmpegEngine implements PlayerEngine {
         child: ValueListenableBuilder<Size>(
           valueListenable: _videoSizeNotifier,
           builder: (context, size, child) {
+            // 关键修复：PlatformView（Hybrid Composition SurfaceView）会按
+            // “Flutter 逻辑尺寸 × devicePixelRatio” 创建原生 Surface。
+            // 若直接用视频原始分辨率（4K = 3840×2160），Surface 会变成
+            // 10800×6075px，远超 GPU/合成器上限（4096~8192），导致合成
+            // 损坏——画面错位、比例错误、两侧出现异常黑边。
+            // 这里固定一个适中的“虚拟画布”（保持视频宽高比，高 384 逻辑
+            // px ≈ 1080 物理 px），由外层 FittedBox 完成最终缩放，
+            // Surface 尺寸始终受控在硬件安全范围内。
+            final aspect = (size.width > 0 && size.height > 0)
+                ? size.width / size.height
+                : 16 / 9;
+            const canvasHeight = 384.0; // 虚拟画布高（逻辑 px）
             return SizedBox(
-              width: size.width > 0 ? size.width : 1920,
-              height: size.height > 0 ? size.height : 1080,
+              width: canvasHeight * aspect,
+              height: canvasHeight,
               child: child,
             );
           },

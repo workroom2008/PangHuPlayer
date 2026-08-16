@@ -211,11 +211,6 @@ class ExoFFmpegPlayer(private val context: Context) {
                     emitState()
                 }
 
-                override fun onVideoSizeChanged(videoSize: VideoSize) {
-                    // 解码器输出的实际视频尺寸（可能已裁掉黑边，如 2.39:1 电影 3840x1608）
-                    android.util.Log.i("LanPlayer", "onVideoSizeChanged: ${videoSize.width}x${videoSize.height} (unapplied=${videoSize.unappliedRotationDegrees})")
-                }
-
                 override fun onRenderedFirstFrame() {
                     // 首帧渲染成功 → 排除"有声无画"
                     firstFrameRendered = true
@@ -245,7 +240,6 @@ class ExoFFmpegPlayer(private val context: Context) {
                             val format: Format = group.getTrackFormat(i)
                             selW = format.width
                             selH = format.height
-                            android.util.Log.i("LanPlayer", "onTracksChanged video format: ${format.width}x${format.height} codec=${format.codecs}")
                             // HDR10 (PQ/ST2084) 或 HLG — 使用反射以兼容不同 media3 版本
                             hdr = try {
                                 val ctField = format.javaClass.getField("colorTransfer")

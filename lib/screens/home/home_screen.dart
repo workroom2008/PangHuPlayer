@@ -126,11 +126,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                   // 切 tab 后立即刷新玻璃背景（不等 350ms 定时器）
                   _pillGlassKey.currentState?.refresh();
                 },
-                children: const [
-                  LibraryPage(),
-                  DiscoverPage(),
-                  ResourcesPage(),
-                  SettingsScreen(),
+                children: [
+                  LibraryPage(onGoToResources: () => _navigateTo(2)),
+                  const DiscoverPage(),
+                  const ResourcesPage(),
+                  const SettingsScreen(),
                 ],
               ),
             ),
@@ -360,7 +360,10 @@ class _NavPill extends StatelessWidget {
 }
 
 class LibraryPage extends ConsumerStatefulWidget {
-  const LibraryPage({super.key});
+  const LibraryPage({super.key, this.onGoToResources});
+
+  /// 无服务器空状态点击「去添加」时回调（切换到资源 Tab）
+  final VoidCallback? onGoToResources;
 
   @override
   ConsumerState<LibraryPage> createState() => _LibraryPageState();
@@ -409,10 +412,10 @@ class _LibraryPageState extends ConsumerState<LibraryPage> with AutomaticKeepAli
           icon: Icons.dns_rounded,
           assetAnimation: 'assets/animations/loading.json',
           title: '暂无媒体服务器',
-          subtitle: '请在设置中添加Emby、Jellyfin或飞牛影视服务器',
+          subtitle: '请前往「资源」页添加Emby、Jellyfin或飞牛影视服务器',
           action: TextButton.icon(
-            onPressed: () => _navigateToSettings(context),
-            icon: Icon(Icons.settings, size: 18),
+            onPressed: widget.onGoToResources ?? () {},
+            icon: Icon(Icons.dns_rounded, size: 18),
             label: Text('去添加'),
             style: TextButton.styleFrom(foregroundColor: AppTheme.primary),
           ),
@@ -576,16 +579,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage> with AutomaticKeepAli
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  void _navigateToSettings(BuildContext context) {
-    Navigator.push(
-      context,
-      AppAnimations.buildPageRoute(
-        page: const SettingsScreen(),
-        type: PageTransitionType.fade,
       ),
     );
   }

@@ -216,13 +216,6 @@ class ExoFFmpegView(mCtx: Context, private val player: ExoFFmpegPlayer) : Platfo
         // 将 SubtitleView 绑定到 ExoPlayer，接收内嵌字幕 cues
         player.setSubtitleView(subtitleView)
 
-        // 诊断：记录 PlatformView 实际尺寸/位置（Flutter 布局结果）
-        rootView.addOnLayoutChangeListener { _, l, t, r, b, _, _, _, _ ->
-            val pos = IntArray(2)
-            rootView.getLocationOnScreen(pos)
-            android.util.Log.i("LanPlayer", "PVLayout: size=${r - l}x${b - t} screenPos=[${pos[0]},${pos[1]}]")
-        }
-
         surfaceView.holder.addCallback(object : android.view.SurfaceHolder.Callback {
             override fun surfaceCreated(holder: android.view.SurfaceHolder) {
                 // SurfaceView 就绪，绑定 Surface 到 ExoPlayer
@@ -231,9 +224,6 @@ class ExoFFmpegView(mCtx: Context, private val player: ExoFFmpegPlayer) : Platfo
 
             override fun surfaceChanged(holder: android.view.SurfaceHolder, format: Int, width: Int, height: Int) {
                 // Surface 尺寸变化，ExoPlayer 自动适配
-                val pos = IntArray(2)
-                surfaceView.getLocationOnScreen(pos)
-                android.util.Log.i("LanPlayer", "surfaceChanged: ${width}x${height} screenPos=[${pos[0]},${pos[1]}] viewSize=${surfaceView.width}x${surfaceView.height}")
             }
 
             override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
