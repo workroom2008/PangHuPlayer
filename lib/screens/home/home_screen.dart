@@ -1467,7 +1467,7 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
             ],
           ),
           _buildTopBar(),
-          if (_showSortMenu) _buildSortMenu(),
+          _buildSortMenu(),
         ],
       ),
     );
@@ -1777,15 +1777,17 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
     return Positioned(
       top: MediaQuery.of(context).padding.top + 56,
       right: 12,
-      child: GestureDetector(
-        onTap: () => setState(() => _showSortMenu = false),
-        behavior: HitTestBehavior.translucent,
-        child: Container(
-          width: 260,
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            color: context.textPrimary,
-            borderRadius: BorderRadius.circular(16),
+      child: _AnimatedMenuPanel(
+        visible: _showSortMenu,
+        child: GestureDetector(
+          onTap: () => setState(() => _showSortMenu = false),
+          behavior: HitTestBehavior.translucent,
+          child: Container(
+            width: 260,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: context.cardColor,
+              borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.15),
@@ -1798,11 +1800,11 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                 child: Text(
                   '排序顺序',
-                  style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.w500),
+                  style: TextStyle(color: context.textSecondary, fontSize: 13, fontWeight: FontWeight.w500),
                 ),
               ),
               ..._sortOptions.map((option) => _SortMenuItem(
@@ -1823,13 +1825,13 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 height: 1,
-                color: Colors.grey.withValues(alpha: 0.2),
+                color: context.textSecondary.withValues(alpha: 0.2),
               ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                 child: Text(
                   '展示样式',
-                  style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.w500),
+                  style: TextStyle(color: context.textSecondary, fontSize: 13, fontWeight: FontWeight.w500),
                 ),
               ),
               _SortMenuItem(
@@ -1847,13 +1849,13 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 height: 1,
-                color: Colors.grey.withValues(alpha: 0.2),
+                color: context.textSecondary.withValues(alpha: 0.2),
               ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                 child: Text(
                   '卡片样式',
-                  style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.w500),
+                  style: TextStyle(color: context.textSecondary, fontSize: 13, fontWeight: FontWeight.w500),
                 ),
               ),
               _SortMenuItem(
@@ -1869,6 +1871,7 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
                 onTap: () => setState(() => _isPortraitCard = false),
               ),
             ],
+            ),
           ),
         ),
       ),
@@ -2132,6 +2135,62 @@ class _FolderCard extends StatelessWidget {
   }
 }
 
+/// 排序面板弹层：随 visible 双向播放淡入+缩放动画（打开/关闭都有过渡）。
+/// 始终挂载在树上，隐藏时用 IgnorePointer 屏蔽触摸。
+class _AnimatedMenuPanel extends StatefulWidget {
+  final bool visible;
+  final Widget child;
+
+  const _AnimatedMenuPanel({required this.visible, required this.child});
+
+  @override
+  State<_AnimatedMenuPanel> createState() => _AnimatedMenuPanelState();
+}
+
+class _AnimatedMenuPanelState extends State<_AnimatedMenuPanel> {
+  late bool _visible;
+
+  @override
+  void initState() {
+    super.initState();
+    _visible = widget.visible;
+    if (widget.visible) {
+      // 首次以隐藏态挂载，下一帧再显示以触发入场动画
+      _visible = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.visible) setState(() => _visible = true);
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimatedMenuPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.visible != _visible) {
+      setState(() => _visible = widget.visible);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: !_visible,
+      child: AnimatedScale(
+        scale: _visible ? 1.0 : 0.85,
+        alignment: Alignment.topRight,
+        duration: AppAnimations.normal,
+        curve: AppAnimations.easeOut,
+        child: AnimatedOpacity(
+          opacity: _visible ? 1.0 : 0.0,
+          duration: AppAnimations.normal,
+          curve: AppAnimations.easeOut,
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
 class _SortMenuItem extends StatelessWidget {
   final String label;
   final bool isSelected;
@@ -2159,7 +2218,7 @@ class _SortMenuItem extends StatelessWidget {
               child: Text(
                 label,
                 style: TextStyle(
-                  color: isSelected ? AppTheme.primary : Colors.black87,
+                  color: isSelected ? AppTheme.primary : context.textPrimary,
                   fontSize: 14,
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                 ),
@@ -2172,7 +2231,7 @@ class _SortMenuItem extends StatelessWidget {
                 size: 18,
               ),
             if (isSelected && showCheck)
-              Icon(Icons.check_rounded, color: Colors.blue, size: 20),
+              Icon(Icons.check_rounded, color: AppTheme.primary, size: 20),
           ],
         ),
       ),
