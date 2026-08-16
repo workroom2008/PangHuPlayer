@@ -108,6 +108,15 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
     /// 详情页 Hero tag：外部传入优先（TMDB 入口），媒体库回退 media_xxx_poster
     String get _heroTag => widget.heroTag ?? 'media_${_item.id}_poster';
 
+    /// 音/字幕轨道的有效来源媒体：
+    /// - 电影：媒体本身（getItemDetails 已带 MediaStreams）
+    /// - 剧集：当前选中集（Series 级对象没有 MediaSources/MediaStreams，
+    ///   轨道属于具体剧集；未选中时回退第一集）
+    MediaItem get _trackItem =>
+        _item.type == MediaType.series && _episodes.isNotEmpty
+            ? (_selectedEpisode ?? _episodes.first)
+            : _item;
+
   /// 季选择药丸的统一宽度（滑动指示器需要固定宽度才能算偏移）
   static const double _seasonPillWidth = 92;
 
@@ -780,9 +789,31 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
     return lang.isEmpty ? null : lang;
   }
 
+  /// 获取某类轨道列表（'subtitle' / 'audio'）。
+  /// 剧集取选中集的轨道；若剧集列表接口未返回 MediaStreams（部分服务器
+  /// 列表不带流信息），延迟拉取剧集详情补齐。
+  Future<List<Map<String, dynamic>>> _resolveTracks(String kind) async {
+    final item = _trackItem;
+    final cached =
+        kind == 'subtitle' ? item.subtitleTracks : item.audioTracks;
+    final tracks = cached ?? const <Map<String, dynamic>>[];
+    if (tracks.isNotEmpty || _item.type != MediaType.series) return tracks;
+
+    final svc = _svc;
+    if (svc == null) return const [];
+    try {
+      final full = await svc.getItemDetails(item.id);
+      final fullTracks =
+          kind == 'subtitle' ? full.subtitleTracks : full.audioTracks;
+      return fullTracks ?? const <Map<String, dynamic>>[];
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// 选择默认字幕轨（存语言偏好，剧集的所有集都套用，即"应用到全部"）
   Future<void> _selectSubtitle() async {
-    final tracks = _item.subtitleTracks ?? const <Map<String, dynamic>>[];
+    final tracks = await _resolveTracks('subtitle');
     if (tracks.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -809,7 +840,7 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
 
   /// 选择默认音轨（存语言偏好，播放器按语言自动应用）
   Future<void> _selectAudio() async {
-    final tracks = _item.audioTracks ?? const <Map<String, dynamic>>[];
+    final tracks = await _resolveTracks('audio');
     if (tracks.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1459,15 +1490,18 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
   Widget _mediaInfoSection() {
     if (!_inLibrary) return const SizedBox.shrink();
 
-    final hasVideo = _item.videoTracks?.isNotEmpty == true;
-    final hasAudio = _item.audioTracks?.isNotEmpty == true;
-    final hasSubtitle = _item.subtitleTracks?.isNotEmpty == true;
+    // 剧集：媒体信息展示选中集的轨道（Series 级对象无 MediaStreams）
+    final ti = _trackItem;
+    final hasVideo = ti.videoTracks?.isNotEmpty == true;
+    final hasAudio = ti.audioTracks?.isNotEmpty == true;
+    final hasSubtitle = ti.subtitleTracks?.isNotEmpty == true;
 
     if (!hasVideo && !hasAudio && !hasSubtitle) return const SizedBox.shrink();
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-      child: _MediaInfoTabs(item: _item),
+      // key 随媒体变化：切换剧集后重建 Tab（轨道列表可能不同）
+      child: _MediaInfoTabs(key: ValueKey(ti.id), item: ti),
     );
   }
 }
@@ -1475,7 +1509,7 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
 /// 媒体信息 Tab 组件：视频/音频/字幕 三个可左右滑动的 Tab
 class _MediaInfoTabs extends StatefulWidget {
   final MediaItem item;
-  const _MediaInfoTabs({required this.item});
+  const _MediaInfoTabs({super.key, required this.item});
 
   @override
   State<_MediaInfoTabs> createState() => _MediaInfoTabsState();
