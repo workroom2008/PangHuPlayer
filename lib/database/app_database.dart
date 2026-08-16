@@ -1,21 +1,23 @@
 import 'dart:io';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
-import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import '../utils/app_log.dart';
 
 part 'app_database.g.dart';
 
-/// 通过 MethodChannel 获取应用文档目录路径（绕过 path_provider 的 jni 依赖）
+/// 获取应用文档目录路径（与全项目一致使用 path_provider，Android 上为 filesDir）。
+/// 失败时降级到临时目录（异常路径，应避免）。
 Future<String> _getApplicationDocumentsDirectory() async {
   try {
-    const channel = MethodChannel('lanplayer/device');
-    final result = await channel.invokeMethod<String>('getApplicationDocumentsDirectory');
-    if (result != null && result.isNotEmpty) {
-      return result;
+    final dir = await getApplicationDocumentsDirectory();
+    if (dir.path.isNotEmpty) {
+      return dir.path;
     }
-  } catch (_) {}
-  // 降级：使用临时目录
+  } catch (e) {
+    AppLog.w('DB', '获取文档目录失败: $e，降级到临时目录');
+  }
   return Directory.systemTemp.path;
 }
 
@@ -238,16 +240,21 @@ class AppDatabase extends _$AppDatabase {
   MigrationStrategy get migration {
     return MigrationStrategy(
       onCreate: (Migrator m) async {
+        AppLog.i('DB', 'onCreate: createAll');
         await m.createAll();
       },
       onUpgrade: (Migrator m, int from, int to) async {
+        AppLog.i('DB', 'onUpgrade from=$from to=$to');
         if (from < 2) {
+          // 使用当前表定义创建，media_items 已含 cached_at 列
           await m.createTable(mediaLibrariesTable);
           await m.createTable(mediaItemsTable);
           await m.createTable(mediaCarouselTable);
           await m.createTable(mediaCacheMetaTable);
         }
-        if (from < 3) {
+        // cached_at 只在 v2 表（尚无该列）升级时需要；from<2 的场景下
+        // 建表定义已含该列，再加会报 duplicate column name
+        if (from == 2) {
           await m.addColumn(mediaItemsTable, mediaItemsTable.cachedAt);
         }
       },
