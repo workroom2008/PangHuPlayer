@@ -5,6 +5,7 @@ import '../../providers/app_providers.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/server_icons.dart';
 import '../../models/media_models.dart';
+import '../servers/servers_screen.dart' show EditServerDialog;
 
 class ResourcesPage extends ConsumerStatefulWidget {
   const ResourcesPage({super.key});
@@ -63,6 +64,44 @@ class _ResourcesPageState extends ConsumerState<ResourcesPage> with AutomaticKee
     ],
   );
 
+  void _editServer(MediaServer server) {
+    showDialog(
+      context: context,
+      builder: (_) => EditServerDialog(
+        existingServer: server,
+        onSave: (updatedServer) async {
+          // 清除旧缓存，确保重新创建 service 时使用新的认证信息
+          clearServiceCache(server.id);
+          await ref.read(mediaServersProvider.notifier).updateServer(updatedServer);
+        },
+      ),
+    );
+  }
+
+  void _deleteServer(MediaServer server) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: context.surfaceColor,
+        title: Text('删除服务器', style: TextStyle(color: context.textPrimary)),
+        content: Text('确定要删除「${server.name}」吗？', style: TextStyle(color: context.textSecondary)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('取消', style: TextStyle(color: context.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              ref.read(mediaServersProvider.notifier).removeServer(server.id);
+            },
+            child: Text('删除', style: TextStyle(color: AppTheme.error)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildServerCard(BuildContext context, MediaServer server) {
     return GestureDetector(
       onTap: () => context.push('/library/${server.id}', extra: {'srv': server}),
@@ -78,13 +117,51 @@ class _ResourcesPageState extends ConsumerState<ResourcesPage> with AutomaticKee
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: ServerIcons.colorForType(server.type.name).withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: ServerIcons.forType(server.type.name, size: 28),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: ServerIcons.colorForType(server.type.name).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: ServerIcons.forType(server.type.name, size: 28),
+                ),
+                const Spacer(),
+                // 卡片右上角更多菜单：编辑 / 删除
+                PopupMenuButton<String>(
+                  color: context.cardColor,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  offset: const Offset(0, 4),
+                  padding: EdgeInsets.zero,
+                  icon: Icon(Icons.more_vert_rounded, color: context.textSecondary, size: 20),
+                  itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: 'edit',
+                      child: Row(children: [
+                        Icon(Icons.edit_rounded, size: 18, color: context.textPrimary),
+                        SizedBox(width: 10),
+                        Text('编辑', style: TextStyle(color: context.textPrimary)),
+                      ]),
+                    ),
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Row(children: [
+                        Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.error),
+                        SizedBox(width: 10),
+                        Text('删除', style: TextStyle(color: AppTheme.error)),
+                      ]),
+                    ),
+                  ],
+                  onSelected: (v) {
+                    if (v == 'edit') {
+                      _editServer(server);
+                    } else if (v == 'delete') {
+                      _deleteServer(server);
+                    }
+                  },
+                ),
+              ],
             ),
             SizedBox(height: 12),
             Text(server.name, style: TextStyle(color: context.textPrimary, fontSize: 14, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),

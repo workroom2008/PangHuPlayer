@@ -165,7 +165,7 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
   void _editServer(MediaServer server) {
     showDialog(
       context: context,
-      builder: (_) => _EditServerDialog(
+      builder: (_) => EditServerDialog(
         existingServer: server,
         onSave: (updatedServer) async {
           // 清除旧缓存，确保重新创建 service 时使用新的认证信息
@@ -362,20 +362,20 @@ class _ServerCard extends StatelessWidget {
 
   }
 
-class _EditServerDialog extends StatefulWidget {
+class EditServerDialog extends StatefulWidget {
   final MediaServer existingServer;
   final Function(MediaServer) onSave;
 
-  _EditServerDialog({
+  EditServerDialog({
     required this.existingServer,
     required this.onSave,
   });
 
   @override
-  State<_EditServerDialog> createState() => _EditServerDialogState();
+  State<EditServerDialog> createState() => EditServerDialogState();
 }
 
-class _EditServerDialogState extends State<_EditServerDialog> {
+class EditServerDialogState extends State<EditServerDialog> {
   final _nameController = TextEditingController();
   final _urlController = TextEditingController();
   final _usernameController = TextEditingController();
