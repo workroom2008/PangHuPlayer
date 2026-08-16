@@ -1,0 +1,264 @@
+import 'dart:io';
+import 'package:drift/drift.dart';
+import 'package:drift/native.dart';
+import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
+
+part 'app_database.g.dart';
+
+/// 通过 MethodChannel 获取应用文档目录路径（绕过 path_provider 的 jni 依赖）
+Future<String> _getApplicationDocumentsDirectory() async {
+  try {
+    const channel = MethodChannel('lanplayer/device');
+    final result = await channel.invokeMethod<String>('getApplicationDocumentsDirectory');
+    if (result != null && result.isNotEmpty) {
+      return result;
+    }
+  } catch (_) {}
+  // 降级：使用临时目录
+  return Directory.systemTemp.path;
+}
+
+// ─── Type Converters ───
+
+class ServerTypeConverter extends TypeConverter<String, int> {
+  const ServerTypeConverter();
+  static const _types = ['emby', 'jellyfin', 'fnos', 'plex', 'moviepilot'];
+  @override
+  String fromSql(int fromDb) => _types[fromDb.clamp(0, _types.length - 1)];
+  @override
+  int toSql(String value) => _types.indexOf(value).clamp(0, _types.length - 1);
+}
+
+// ─── Table Definitions ───
+
+@DataClassName('MediaServerRow')
+class MediaServersTable extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  TextColumn get url => text()();
+  IntColumn get serverType => integer().map(const ServerTypeConverter())();
+  TextColumn get apiKey => text().nullable()();
+  TextColumn get username => text().nullable()();
+  TextColumn get password => text().nullable()();
+  BoolColumn get isConnected => boolean().withDefault(const Constant(true))();
+  BoolColumn get isDefault => boolean().withDefault(const Constant(false))();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@DataClassName('DanmakuConfigRow')
+class DanmakuConfigsTable extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  TextColumn get url => text()();
+  TextColumn get apiKey => text().nullable()();
+  BoolColumn get isEnabled => boolean().withDefault(const Constant(true))();
+  RealColumn get fontSize => real().withDefault(const Constant(24.0))();
+  RealColumn get opacity => real().withDefault(const Constant(1.0))();
+  RealColumn get speed => real().withDefault(const Constant(12.0))();
+  BoolColumn get showTop => boolean().withDefault(const Constant(true))();
+  BoolColumn get showBottom => boolean().withDefault(const Constant(true))();
+  BoolColumn get showScroll => boolean().withDefault(const Constant(true))();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@DataClassName('WatchHistoryRow')
+class WatchHistoryTable extends Table {
+  TextColumn get id => text()();
+  TextColumn get title => text()();
+  TextColumn get posterUrl => text().withDefault(const Constant(''))();
+  TextColumn get backdropUrl => text().nullable()();
+  TextColumn get serverId => text().nullable()();
+  RealColumn get progress => real().withDefault(const Constant(0.0))();
+  IntColumn get positionMs => integer().withDefault(const Constant(0))();
+  IntColumn get durationMs => integer().withDefault(const Constant(0))();
+  IntColumn get seasonNumber => integer().nullable()();
+  IntColumn get episodeNumber => integer().nullable()();
+  TextColumn get seriesTitle => text().nullable()();
+  IntColumn get updatedAt => integer()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@DataClassName('FavoriteMovieRow')
+class FavoriteMoviesTable extends Table {
+  IntColumn get tmdbId => integer()();
+  TextColumn get title => text()();
+  TextColumn get posterPath => text().nullable()();
+  TextColumn get backdropPath => text().nullable()();
+  TextColumn get overview => text().nullable()();
+  RealColumn get voteAverage => real().nullable()();
+  TextColumn get releaseDate => text().nullable()();
+  IntColumn get addedAt => integer()();
+  TextColumn get type => text().withDefault(const Constant('movie'))();
+
+  @override
+  Set<Column> get primaryKey => {tmdbId};
+}
+
+@DataClassName('WatchlistMovieRow')
+class WatchlistTable extends Table {
+  IntColumn get tmdbId => integer()();
+  TextColumn get title => text()();
+  TextColumn get posterPath => text().nullable()();
+  TextColumn get backdropPath => text().nullable()();
+  TextColumn get overview => text().nullable()();
+  RealColumn get voteAverage => real().nullable()();
+  TextColumn get releaseDate => text().nullable()();
+  IntColumn get addedAt => integer()();
+  TextColumn get type => text().withDefault(const Constant('movie'))();
+
+  @override
+  Set<Column> get primaryKey => {tmdbId};
+}
+
+@DataClassName('AppSettingRow')
+class AppSettingsTable extends Table {
+  TextColumn get key => text()();
+  TextColumn get value => text()();
+
+  @override
+  Set<Column> get primaryKey => {key};
+}
+
+@DataClassName('DanmakuSelectionRow')
+class DanmakuSelectionsTable extends Table {
+  TextColumn get mediaId => text()();
+  TextColumn get episodeId => text()();
+  IntColumn get updatedAt => integer()();
+
+  @override
+  Set<Column> get primaryKey => {mediaId};
+}
+
+// ─── Media Library Cache Tables ───
+
+@DataClassName('MediaLibraryRow')
+class MediaLibrariesTable extends Table {
+  TextColumn get id => text()();
+  TextColumn get serverId => text()();
+  TextColumn get title => text()();
+  TextColumn get posterUrl => text().withDefault(const Constant(''))();
+  TextColumn get type => text().withDefault(const Constant('folder'))();
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
+
+  @override
+  Set<Column> get primaryKey => {serverId, id};
+}
+
+@DataClassName('MediaItemCacheRow')
+class MediaItemsTable extends Table {
+  TextColumn get id => text()();
+  TextColumn get serverId => text()();
+  TextColumn get libraryId => text()();
+  TextColumn get title => text()();
+  TextColumn get posterUrl => text().withDefault(const Constant(''))();
+  TextColumn get backdropUrl => text().nullable()();
+  TextColumn get overview => text().nullable()();
+  RealColumn get rating => real().nullable()();
+  IntColumn get year => integer().nullable()();
+  TextColumn get releaseDate => text().nullable()();
+  TextColumn get genres => text().withDefault(const Constant('[]'))();
+  TextColumn get type => text().withDefault(const Constant('movie'))();
+  IntColumn get duration => integer().withDefault(const Constant(0))();
+  TextColumn get imdbId => text().nullable()();
+  IntColumn get tmdbId => integer().nullable()();
+  TextColumn get quality => text().nullable()();
+  BoolColumn get isWatched => boolean().nullable()();
+  BoolColumn get isFavorite => boolean().nullable()();
+  RealColumn get watchProgress => real().nullable()();
+  TextColumn get sources => text().withDefault(const Constant('[]'))();
+  TextColumn get director => text().nullable()();
+  TextColumn get cast => text().nullable()();
+  TextColumn get videoTracks => text().nullable()();
+  TextColumn get audioTracks => text().nullable()();
+  TextColumn get subtitleTracks => text().nullable()();
+  TextColumn get people => text().nullable()();
+  IntColumn get seasonNumber => integer().nullable()();
+  IntColumn get episodeNumber => integer().nullable()();
+  TextColumn get seriesTitle => text().nullable()();
+  IntColumn get totalSeasons => integer().nullable()();
+  IntColumn get totalEpisodes => integer().nullable()();
+  TextColumn get filePath => text().nullable()();
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
+  IntColumn get cachedAt => integer().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {serverId, id};
+}
+
+@DataClassName('MediaCarouselRow')
+class MediaCarouselTable extends Table {
+  TextColumn get serverId => text()();
+  TextColumn get itemId => text()();
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
+  TextColumn get itemJson => text().withDefault(const Constant('{}'))();
+
+  @override
+  Set<Column> get primaryKey => {serverId, itemId};
+}
+
+@DataClassName('MediaCacheMetaRow')
+class MediaCacheMetaTable extends Table {
+  TextColumn get serverId => text()();
+  IntColumn get lastRefreshTime => integer().nullable()();
+  TextColumn get carouselIds => text().withDefault(const Constant('[]'))();
+
+  @override
+  Set<Column> get primaryKey => {serverId};
+}
+
+// ─── Database ───
+
+@DriftDatabase(tables: [
+  MediaServersTable,
+  DanmakuConfigsTable,
+  WatchHistoryTable,
+  FavoriteMoviesTable,
+  WatchlistTable,
+  AppSettingsTable,
+  DanmakuSelectionsTable,
+  MediaLibrariesTable,
+  MediaItemsTable,
+  MediaCarouselTable,
+  MediaCacheMetaTable,
+])
+class AppDatabase extends _$AppDatabase {
+  AppDatabase() : super(_openConnection());
+
+  @override
+  int get schemaVersion => 3;
+
+  @override
+  MigrationStrategy get migration {
+    return MigrationStrategy(
+      onCreate: (Migrator m) async {
+        await m.createAll();
+      },
+      onUpgrade: (Migrator m, int from, int to) async {
+        if (from < 2) {
+          await m.createTable(mediaLibrariesTable);
+          await m.createTable(mediaItemsTable);
+          await m.createTable(mediaCarouselTable);
+          await m.createTable(mediaCacheMetaTable);
+        }
+        if (from < 3) {
+          await m.addColumn(mediaItemsTable, mediaItemsTable.cachedAt);
+        }
+      },
+    );
+  }
+}
+
+LazyDatabase _openConnection() {
+  return LazyDatabase(() async {
+    final dbFolder = await _getApplicationDocumentsDirectory();
+    final file = File(p.join(dbFolder, 'lanplayer.db'));
+    return NativeDatabase.createInBackground(file);
+  });
+}
