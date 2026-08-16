@@ -93,12 +93,13 @@ class _ServerSelectorChipState extends ConsumerState<ServerSelectorChip> with Si
     final servers = ref.watch(mediaServersProvider);
     final defaultServer = servers.where((s) => s.isDefault).firstOrNull;
 
-    // 计算面板宽度（取最长的服务器名称）
+    // 计算面板宽度（取最长的服务器名称，封顶避免超出屏幕右侧）
     double maxWidth = 160.0;
     for (final s in servers) {
       final textWidth = _calculateTextWidth(s.name);
       maxWidth = max<double>(maxWidth, textWidth + 60.0);
     }
+    maxWidth = min<double>(maxWidth, MediaQuery.sizeOf(context).width * 0.9);
 
     return AnimatedBuilder(
       animation: _animationController,
@@ -181,7 +182,8 @@ class _ServerSelectorChipState extends ConsumerState<ServerSelectorChip> with Si
       maxLines: 1,
       textDirection: TextDirection.ltr,
     )..layout();
-    return textPainter.width;
+    // 按系统字体缩放系数换算，避免字体放大时测量值小于实际渲染宽度
+    return MediaQuery.textScalerOf(context).scale(textPainter.width);
   }
 
   @override
@@ -189,9 +191,10 @@ class _ServerSelectorChipState extends ConsumerState<ServerSelectorChip> with Si
     final servers = ref.watch(mediaServersProvider);
     final defaultServer = servers.where((s) => s.isDefault).firstOrNull ?? servers.firstOrNull;
 
-    // 计算按钮宽度
+    // 计算按钮宽度（按实际字体缩放测量，封顶：避免长服务器名把顶栏 Row 撑爆导致溢出）
     final textWidth = defaultServer != null ? _calculateTextWidth(defaultServer.name) : 80.0;
-    final computedWidth = max<double>(60.0, textWidth + 48.0);
+    final maxChipWidth = MediaQuery.sizeOf(context).width * 0.5;
+    final computedWidth = min<double>(max<double>(60.0, textWidth + 48.0), maxChipWidth);
 
     return CompositedTransformTarget(
       link: _layerLink,
@@ -211,15 +214,17 @@ class _ServerSelectorChipState extends ConsumerState<ServerSelectorChip> with Si
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  defaultServer?.name ?? '选择服务器',
-                  style: TextStyle(
-                    color: Theme.of(context).textTheme.bodyLarge?.color,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
+                Flexible(
+                  child: Text(
+                    defaultServer?.name ?? '选择服务器',
+                    style: TextStyle(
+                      color: Theme.of(context).textTheme.bodyLarge?.color,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(width: 4),
                 Icon(

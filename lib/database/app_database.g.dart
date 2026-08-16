@@ -3043,6 +3043,12 @@ class $MediaLibrariesTableTable extends MediaLibrariesTable
       type: DriftSqlType.string,
       requiredDuringInsert: false,
       defaultValue: const Constant('folder'));
+  static const VerificationMeta _collectionTypeMeta =
+      const VerificationMeta('collectionType');
+  @override
+  late final GeneratedColumn<String> collectionType = GeneratedColumn<String>(
+      'collection_type', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _sortOrderMeta =
       const VerificationMeta('sortOrder');
   @override
@@ -3053,7 +3059,7 @@ class $MediaLibrariesTableTable extends MediaLibrariesTable
       defaultValue: const Constant(0));
   @override
   List<GeneratedColumn> get $columns =>
-      [id, serverId, title, posterUrl, type, sortOrder];
+      [id, serverId, title, posterUrl, type, collectionType, sortOrder];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -3089,6 +3095,12 @@ class $MediaLibrariesTableTable extends MediaLibrariesTable
       context.handle(
           _typeMeta, type.isAcceptableOrUnknown(data['type']!, _typeMeta));
     }
+    if (data.containsKey('collection_type')) {
+      context.handle(
+          _collectionTypeMeta,
+          collectionType.isAcceptableOrUnknown(
+              data['collection_type']!, _collectionTypeMeta));
+    }
     if (data.containsKey('sort_order')) {
       context.handle(_sortOrderMeta,
           sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta));
@@ -3112,6 +3124,8 @@ class $MediaLibrariesTableTable extends MediaLibrariesTable
           .read(DriftSqlType.string, data['${effectivePrefix}poster_url'])!,
       type: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}type'])!,
+      collectionType: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}collection_type']),
       sortOrder: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}sort_order'])!,
     );
@@ -3129,6 +3143,7 @@ class MediaLibraryRow extends DataClass implements Insertable<MediaLibraryRow> {
   final String title;
   final String posterUrl;
   final String type;
+  final String? collectionType;
   final int sortOrder;
   const MediaLibraryRow(
       {required this.id,
@@ -3136,6 +3151,7 @@ class MediaLibraryRow extends DataClass implements Insertable<MediaLibraryRow> {
       required this.title,
       required this.posterUrl,
       required this.type,
+      this.collectionType,
       required this.sortOrder});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3145,6 +3161,9 @@ class MediaLibraryRow extends DataClass implements Insertable<MediaLibraryRow> {
     map['title'] = Variable<String>(title);
     map['poster_url'] = Variable<String>(posterUrl);
     map['type'] = Variable<String>(type);
+    if (!nullToAbsent || collectionType != null) {
+      map['collection_type'] = Variable<String>(collectionType);
+    }
     map['sort_order'] = Variable<int>(sortOrder);
     return map;
   }
@@ -3156,6 +3175,9 @@ class MediaLibraryRow extends DataClass implements Insertable<MediaLibraryRow> {
       title: Value(title),
       posterUrl: Value(posterUrl),
       type: Value(type),
+      collectionType: collectionType == null && nullToAbsent
+          ? const Value.absent()
+          : Value(collectionType),
       sortOrder: Value(sortOrder),
     );
   }
@@ -3169,6 +3191,7 @@ class MediaLibraryRow extends DataClass implements Insertable<MediaLibraryRow> {
       title: serializer.fromJson<String>(json['title']),
       posterUrl: serializer.fromJson<String>(json['posterUrl']),
       type: serializer.fromJson<String>(json['type']),
+      collectionType: serializer.fromJson<String?>(json['collectionType']),
       sortOrder: serializer.fromJson<int>(json['sortOrder']),
     );
   }
@@ -3181,6 +3204,7 @@ class MediaLibraryRow extends DataClass implements Insertable<MediaLibraryRow> {
       'title': serializer.toJson<String>(title),
       'posterUrl': serializer.toJson<String>(posterUrl),
       'type': serializer.toJson<String>(type),
+      'collectionType': serializer.toJson<String?>(collectionType),
       'sortOrder': serializer.toJson<int>(sortOrder),
     };
   }
@@ -3191,6 +3215,7 @@ class MediaLibraryRow extends DataClass implements Insertable<MediaLibraryRow> {
           String? title,
           String? posterUrl,
           String? type,
+          Value<String?> collectionType = const Value.absent(),
           int? sortOrder}) =>
       MediaLibraryRow(
         id: id ?? this.id,
@@ -3198,6 +3223,8 @@ class MediaLibraryRow extends DataClass implements Insertable<MediaLibraryRow> {
         title: title ?? this.title,
         posterUrl: posterUrl ?? this.posterUrl,
         type: type ?? this.type,
+        collectionType:
+            collectionType.present ? collectionType.value : this.collectionType,
         sortOrder: sortOrder ?? this.sortOrder,
       );
   MediaLibraryRow copyWithCompanion(MediaLibrariesTableCompanion data) {
@@ -3207,6 +3234,9 @@ class MediaLibraryRow extends DataClass implements Insertable<MediaLibraryRow> {
       title: data.title.present ? data.title.value : this.title,
       posterUrl: data.posterUrl.present ? data.posterUrl.value : this.posterUrl,
       type: data.type.present ? data.type.value : this.type,
+      collectionType: data.collectionType.present
+          ? data.collectionType.value
+          : this.collectionType,
       sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
     );
   }
@@ -3219,14 +3249,15 @@ class MediaLibraryRow extends DataClass implements Insertable<MediaLibraryRow> {
           ..write('title: $title, ')
           ..write('posterUrl: $posterUrl, ')
           ..write('type: $type, ')
+          ..write('collectionType: $collectionType, ')
           ..write('sortOrder: $sortOrder')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, serverId, title, posterUrl, type, sortOrder);
+  int get hashCode => Object.hash(
+      id, serverId, title, posterUrl, type, collectionType, sortOrder);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -3236,6 +3267,7 @@ class MediaLibraryRow extends DataClass implements Insertable<MediaLibraryRow> {
           other.title == this.title &&
           other.posterUrl == this.posterUrl &&
           other.type == this.type &&
+          other.collectionType == this.collectionType &&
           other.sortOrder == this.sortOrder);
 }
 
@@ -3245,6 +3277,7 @@ class MediaLibrariesTableCompanion extends UpdateCompanion<MediaLibraryRow> {
   final Value<String> title;
   final Value<String> posterUrl;
   final Value<String> type;
+  final Value<String?> collectionType;
   final Value<int> sortOrder;
   final Value<int> rowid;
   const MediaLibrariesTableCompanion({
@@ -3253,6 +3286,7 @@ class MediaLibrariesTableCompanion extends UpdateCompanion<MediaLibraryRow> {
     this.title = const Value.absent(),
     this.posterUrl = const Value.absent(),
     this.type = const Value.absent(),
+    this.collectionType = const Value.absent(),
     this.sortOrder = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -3262,6 +3296,7 @@ class MediaLibrariesTableCompanion extends UpdateCompanion<MediaLibraryRow> {
     required String title,
     this.posterUrl = const Value.absent(),
     this.type = const Value.absent(),
+    this.collectionType = const Value.absent(),
     this.sortOrder = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : id = Value(id),
@@ -3273,6 +3308,7 @@ class MediaLibrariesTableCompanion extends UpdateCompanion<MediaLibraryRow> {
     Expression<String>? title,
     Expression<String>? posterUrl,
     Expression<String>? type,
+    Expression<String>? collectionType,
     Expression<int>? sortOrder,
     Expression<int>? rowid,
   }) {
@@ -3282,6 +3318,7 @@ class MediaLibrariesTableCompanion extends UpdateCompanion<MediaLibraryRow> {
       if (title != null) 'title': title,
       if (posterUrl != null) 'poster_url': posterUrl,
       if (type != null) 'type': type,
+      if (collectionType != null) 'collection_type': collectionType,
       if (sortOrder != null) 'sort_order': sortOrder,
       if (rowid != null) 'rowid': rowid,
     });
@@ -3293,6 +3330,7 @@ class MediaLibrariesTableCompanion extends UpdateCompanion<MediaLibraryRow> {
       Value<String>? title,
       Value<String>? posterUrl,
       Value<String>? type,
+      Value<String?>? collectionType,
       Value<int>? sortOrder,
       Value<int>? rowid}) {
     return MediaLibrariesTableCompanion(
@@ -3301,6 +3339,7 @@ class MediaLibrariesTableCompanion extends UpdateCompanion<MediaLibraryRow> {
       title: title ?? this.title,
       posterUrl: posterUrl ?? this.posterUrl,
       type: type ?? this.type,
+      collectionType: collectionType ?? this.collectionType,
       sortOrder: sortOrder ?? this.sortOrder,
       rowid: rowid ?? this.rowid,
     );
@@ -3324,6 +3363,9 @@ class MediaLibrariesTableCompanion extends UpdateCompanion<MediaLibraryRow> {
     if (type.present) {
       map['type'] = Variable<String>(type.value);
     }
+    if (collectionType.present) {
+      map['collection_type'] = Variable<String>(collectionType.value);
+    }
     if (sortOrder.present) {
       map['sort_order'] = Variable<int>(sortOrder.value);
     }
@@ -3341,6 +3383,7 @@ class MediaLibrariesTableCompanion extends UpdateCompanion<MediaLibraryRow> {
           ..write('title: $title, ')
           ..write('posterUrl: $posterUrl, ')
           ..write('type: $type, ')
+          ..write('collectionType: $collectionType, ')
           ..write('sortOrder: $sortOrder, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -3552,6 +3595,16 @@ class $MediaItemsTableTable extends MediaItemsTable
   late final GeneratedColumn<String> filePath = GeneratedColumn<String>(
       'file_path', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _isBoxSetMeta =
+      const VerificationMeta('isBoxSet');
+  @override
+  late final GeneratedColumn<bool> isBoxSet = GeneratedColumn<bool>(
+      'is_box_set', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("is_box_set" IN (0, 1))'),
+      defaultValue: const Constant(false));
   static const VerificationMeta _sortOrderMeta =
       const VerificationMeta('sortOrder');
   @override
@@ -3600,6 +3653,7 @@ class $MediaItemsTableTable extends MediaItemsTable
         totalSeasons,
         totalEpisodes,
         filePath,
+        isBoxSet,
         sortOrder,
         cachedAt
       ];
@@ -3772,6 +3826,10 @@ class $MediaItemsTableTable extends MediaItemsTable
       context.handle(_filePathMeta,
           filePath.isAcceptableOrUnknown(data['file_path']!, _filePathMeta));
     }
+    if (data.containsKey('is_box_set')) {
+      context.handle(_isBoxSetMeta,
+          isBoxSet.isAcceptableOrUnknown(data['is_box_set']!, _isBoxSetMeta));
+    }
     if (data.containsKey('sort_order')) {
       context.handle(_sortOrderMeta,
           sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta));
@@ -3853,6 +3911,8 @@ class $MediaItemsTableTable extends MediaItemsTable
           .read(DriftSqlType.int, data['${effectivePrefix}total_episodes']),
       filePath: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}file_path']),
+      isBoxSet: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_box_set'])!,
       sortOrder: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}sort_order'])!,
       cachedAt: attachedDatabase.typeMapping
@@ -3900,6 +3960,7 @@ class MediaItemCacheRow extends DataClass
   final int? totalSeasons;
   final int? totalEpisodes;
   final String? filePath;
+  final bool isBoxSet;
   final int sortOrder;
   final int? cachedAt;
   const MediaItemCacheRow(
@@ -3935,6 +3996,7 @@ class MediaItemCacheRow extends DataClass
       this.totalSeasons,
       this.totalEpisodes,
       this.filePath,
+      required this.isBoxSet,
       required this.sortOrder,
       this.cachedAt});
   @override
@@ -4018,6 +4080,7 @@ class MediaItemCacheRow extends DataClass
     if (!nullToAbsent || filePath != null) {
       map['file_path'] = Variable<String>(filePath);
     }
+    map['is_box_set'] = Variable<bool>(isBoxSet);
     map['sort_order'] = Variable<int>(sortOrder);
     if (!nullToAbsent || cachedAt != null) {
       map['cached_at'] = Variable<int>(cachedAt);
@@ -4097,6 +4160,7 @@ class MediaItemCacheRow extends DataClass
       filePath: filePath == null && nullToAbsent
           ? const Value.absent()
           : Value(filePath),
+      isBoxSet: Value(isBoxSet),
       sortOrder: Value(sortOrder),
       cachedAt: cachedAt == null && nullToAbsent
           ? const Value.absent()
@@ -4140,6 +4204,7 @@ class MediaItemCacheRow extends DataClass
       totalSeasons: serializer.fromJson<int?>(json['totalSeasons']),
       totalEpisodes: serializer.fromJson<int?>(json['totalEpisodes']),
       filePath: serializer.fromJson<String?>(json['filePath']),
+      isBoxSet: serializer.fromJson<bool>(json['isBoxSet']),
       sortOrder: serializer.fromJson<int>(json['sortOrder']),
       cachedAt: serializer.fromJson<int?>(json['cachedAt']),
     );
@@ -4180,6 +4245,7 @@ class MediaItemCacheRow extends DataClass
       'totalSeasons': serializer.toJson<int?>(totalSeasons),
       'totalEpisodes': serializer.toJson<int?>(totalEpisodes),
       'filePath': serializer.toJson<String?>(filePath),
+      'isBoxSet': serializer.toJson<bool>(isBoxSet),
       'sortOrder': serializer.toJson<int>(sortOrder),
       'cachedAt': serializer.toJson<int?>(cachedAt),
     };
@@ -4218,6 +4284,7 @@ class MediaItemCacheRow extends DataClass
           Value<int?> totalSeasons = const Value.absent(),
           Value<int?> totalEpisodes = const Value.absent(),
           Value<String?> filePath = const Value.absent(),
+          bool? isBoxSet,
           int? sortOrder,
           Value<int?> cachedAt = const Value.absent()}) =>
       MediaItemCacheRow(
@@ -4259,6 +4326,7 @@ class MediaItemCacheRow extends DataClass
         totalEpisodes:
             totalEpisodes.present ? totalEpisodes.value : this.totalEpisodes,
         filePath: filePath.present ? filePath.value : this.filePath,
+        isBoxSet: isBoxSet ?? this.isBoxSet,
         sortOrder: sortOrder ?? this.sortOrder,
         cachedAt: cachedAt.present ? cachedAt.value : this.cachedAt,
       );
@@ -4314,6 +4382,7 @@ class MediaItemCacheRow extends DataClass
           ? data.totalEpisodes.value
           : this.totalEpisodes,
       filePath: data.filePath.present ? data.filePath.value : this.filePath,
+      isBoxSet: data.isBoxSet.present ? data.isBoxSet.value : this.isBoxSet,
       sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
       cachedAt: data.cachedAt.present ? data.cachedAt.value : this.cachedAt,
     );
@@ -4354,6 +4423,7 @@ class MediaItemCacheRow extends DataClass
           ..write('totalSeasons: $totalSeasons, ')
           ..write('totalEpisodes: $totalEpisodes, ')
           ..write('filePath: $filePath, ')
+          ..write('isBoxSet: $isBoxSet, ')
           ..write('sortOrder: $sortOrder, ')
           ..write('cachedAt: $cachedAt')
           ..write(')'))
@@ -4394,6 +4464,7 @@ class MediaItemCacheRow extends DataClass
         totalSeasons,
         totalEpisodes,
         filePath,
+        isBoxSet,
         sortOrder,
         cachedAt
       ]);
@@ -4433,6 +4504,7 @@ class MediaItemCacheRow extends DataClass
           other.totalSeasons == this.totalSeasons &&
           other.totalEpisodes == this.totalEpisodes &&
           other.filePath == this.filePath &&
+          other.isBoxSet == this.isBoxSet &&
           other.sortOrder == this.sortOrder &&
           other.cachedAt == this.cachedAt);
 }
@@ -4470,6 +4542,7 @@ class MediaItemsTableCompanion extends UpdateCompanion<MediaItemCacheRow> {
   final Value<int?> totalSeasons;
   final Value<int?> totalEpisodes;
   final Value<String?> filePath;
+  final Value<bool> isBoxSet;
   final Value<int> sortOrder;
   final Value<int?> cachedAt;
   final Value<int> rowid;
@@ -4506,6 +4579,7 @@ class MediaItemsTableCompanion extends UpdateCompanion<MediaItemCacheRow> {
     this.totalSeasons = const Value.absent(),
     this.totalEpisodes = const Value.absent(),
     this.filePath = const Value.absent(),
+    this.isBoxSet = const Value.absent(),
     this.sortOrder = const Value.absent(),
     this.cachedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -4543,6 +4617,7 @@ class MediaItemsTableCompanion extends UpdateCompanion<MediaItemCacheRow> {
     this.totalSeasons = const Value.absent(),
     this.totalEpisodes = const Value.absent(),
     this.filePath = const Value.absent(),
+    this.isBoxSet = const Value.absent(),
     this.sortOrder = const Value.absent(),
     this.cachedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -4583,6 +4658,7 @@ class MediaItemsTableCompanion extends UpdateCompanion<MediaItemCacheRow> {
     Expression<int>? totalSeasons,
     Expression<int>? totalEpisodes,
     Expression<String>? filePath,
+    Expression<bool>? isBoxSet,
     Expression<int>? sortOrder,
     Expression<int>? cachedAt,
     Expression<int>? rowid,
@@ -4620,6 +4696,7 @@ class MediaItemsTableCompanion extends UpdateCompanion<MediaItemCacheRow> {
       if (totalSeasons != null) 'total_seasons': totalSeasons,
       if (totalEpisodes != null) 'total_episodes': totalEpisodes,
       if (filePath != null) 'file_path': filePath,
+      if (isBoxSet != null) 'is_box_set': isBoxSet,
       if (sortOrder != null) 'sort_order': sortOrder,
       if (cachedAt != null) 'cached_at': cachedAt,
       if (rowid != null) 'rowid': rowid,
@@ -4659,6 +4736,7 @@ class MediaItemsTableCompanion extends UpdateCompanion<MediaItemCacheRow> {
       Value<int?>? totalSeasons,
       Value<int?>? totalEpisodes,
       Value<String?>? filePath,
+      Value<bool>? isBoxSet,
       Value<int>? sortOrder,
       Value<int?>? cachedAt,
       Value<int>? rowid}) {
@@ -4695,6 +4773,7 @@ class MediaItemsTableCompanion extends UpdateCompanion<MediaItemCacheRow> {
       totalSeasons: totalSeasons ?? this.totalSeasons,
       totalEpisodes: totalEpisodes ?? this.totalEpisodes,
       filePath: filePath ?? this.filePath,
+      isBoxSet: isBoxSet ?? this.isBoxSet,
       sortOrder: sortOrder ?? this.sortOrder,
       cachedAt: cachedAt ?? this.cachedAt,
       rowid: rowid ?? this.rowid,
@@ -4800,6 +4879,9 @@ class MediaItemsTableCompanion extends UpdateCompanion<MediaItemCacheRow> {
     if (filePath.present) {
       map['file_path'] = Variable<String>(filePath.value);
     }
+    if (isBoxSet.present) {
+      map['is_box_set'] = Variable<bool>(isBoxSet.value);
+    }
     if (sortOrder.present) {
       map['sort_order'] = Variable<int>(sortOrder.value);
     }
@@ -4847,6 +4929,7 @@ class MediaItemsTableCompanion extends UpdateCompanion<MediaItemCacheRow> {
           ..write('totalSeasons: $totalSeasons, ')
           ..write('totalEpisodes: $totalEpisodes, ')
           ..write('filePath: $filePath, ')
+          ..write('isBoxSet: $isBoxSet, ')
           ..write('sortOrder: $sortOrder, ')
           ..write('cachedAt: $cachedAt, ')
           ..write('rowid: $rowid')
@@ -6948,6 +7031,7 @@ typedef $$MediaLibrariesTableTableCreateCompanionBuilder
   required String title,
   Value<String> posterUrl,
   Value<String> type,
+  Value<String?> collectionType,
   Value<int> sortOrder,
   Value<int> rowid,
 });
@@ -6958,6 +7042,7 @@ typedef $$MediaLibrariesTableTableUpdateCompanionBuilder
   Value<String> title,
   Value<String> posterUrl,
   Value<String> type,
+  Value<String?> collectionType,
   Value<int> sortOrder,
   Value<int> rowid,
 });
@@ -6985,6 +7070,10 @@ class $$MediaLibrariesTableTableFilterComposer
 
   ColumnFilters<String> get type => $composableBuilder(
       column: $table.type, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get collectionType => $composableBuilder(
+      column: $table.collectionType,
+      builder: (column) => ColumnFilters(column));
 
   ColumnFilters<int> get sortOrder => $composableBuilder(
       column: $table.sortOrder, builder: (column) => ColumnFilters(column));
@@ -7014,6 +7103,10 @@ class $$MediaLibrariesTableTableOrderingComposer
   ColumnOrderings<String> get type => $composableBuilder(
       column: $table.type, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get collectionType => $composableBuilder(
+      column: $table.collectionType,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<int> get sortOrder => $composableBuilder(
       column: $table.sortOrder, builder: (column) => ColumnOrderings(column));
 }
@@ -7041,6 +7134,9 @@ class $$MediaLibrariesTableTableAnnotationComposer
 
   GeneratedColumn<String> get type =>
       $composableBuilder(column: $table.type, builder: (column) => column);
+
+  GeneratedColumn<String> get collectionType => $composableBuilder(
+      column: $table.collectionType, builder: (column) => column);
 
   GeneratedColumn<int> get sortOrder =>
       $composableBuilder(column: $table.sortOrder, builder: (column) => column);
@@ -7080,6 +7176,7 @@ class $$MediaLibrariesTableTableTableManager extends RootTableManager<
             Value<String> title = const Value.absent(),
             Value<String> posterUrl = const Value.absent(),
             Value<String> type = const Value.absent(),
+            Value<String?> collectionType = const Value.absent(),
             Value<int> sortOrder = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
@@ -7089,6 +7186,7 @@ class $$MediaLibrariesTableTableTableManager extends RootTableManager<
             title: title,
             posterUrl: posterUrl,
             type: type,
+            collectionType: collectionType,
             sortOrder: sortOrder,
             rowid: rowid,
           ),
@@ -7098,6 +7196,7 @@ class $$MediaLibrariesTableTableTableManager extends RootTableManager<
             required String title,
             Value<String> posterUrl = const Value.absent(),
             Value<String> type = const Value.absent(),
+            Value<String?> collectionType = const Value.absent(),
             Value<int> sortOrder = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
@@ -7107,6 +7206,7 @@ class $$MediaLibrariesTableTableTableManager extends RootTableManager<
             title: title,
             posterUrl: posterUrl,
             type: type,
+            collectionType: collectionType,
             sortOrder: sortOrder,
             rowid: rowid,
           ),
@@ -7166,6 +7266,7 @@ typedef $$MediaItemsTableTableCreateCompanionBuilder = MediaItemsTableCompanion
   Value<int?> totalSeasons,
   Value<int?> totalEpisodes,
   Value<String?> filePath,
+  Value<bool> isBoxSet,
   Value<int> sortOrder,
   Value<int?> cachedAt,
   Value<int> rowid,
@@ -7204,6 +7305,7 @@ typedef $$MediaItemsTableTableUpdateCompanionBuilder = MediaItemsTableCompanion
   Value<int?> totalSeasons,
   Value<int?> totalEpisodes,
   Value<String?> filePath,
+  Value<bool> isBoxSet,
   Value<int> sortOrder,
   Value<int?> cachedAt,
   Value<int> rowid,
@@ -7314,6 +7416,9 @@ class $$MediaItemsTableTableFilterComposer
 
   ColumnFilters<String> get filePath => $composableBuilder(
       column: $table.filePath, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isBoxSet => $composableBuilder(
+      column: $table.isBoxSet, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<int> get sortOrder => $composableBuilder(
       column: $table.sortOrder, builder: (column) => ColumnFilters(column));
@@ -7433,6 +7538,9 @@ class $$MediaItemsTableTableOrderingComposer
   ColumnOrderings<String> get filePath => $composableBuilder(
       column: $table.filePath, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<bool> get isBoxSet => $composableBuilder(
+      column: $table.isBoxSet, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<int> get sortOrder => $composableBuilder(
       column: $table.sortOrder, builder: (column) => ColumnOrderings(column));
 
@@ -7545,6 +7653,9 @@ class $$MediaItemsTableTableAnnotationComposer
   GeneratedColumn<String> get filePath =>
       $composableBuilder(column: $table.filePath, builder: (column) => column);
 
+  GeneratedColumn<bool> get isBoxSet =>
+      $composableBuilder(column: $table.isBoxSet, builder: (column) => column);
+
   GeneratedColumn<int> get sortOrder =>
       $composableBuilder(column: $table.sortOrder, builder: (column) => column);
 
@@ -7611,6 +7722,7 @@ class $$MediaItemsTableTableTableManager extends RootTableManager<
             Value<int?> totalSeasons = const Value.absent(),
             Value<int?> totalEpisodes = const Value.absent(),
             Value<String?> filePath = const Value.absent(),
+            Value<bool> isBoxSet = const Value.absent(),
             Value<int> sortOrder = const Value.absent(),
             Value<int?> cachedAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
@@ -7648,6 +7760,7 @@ class $$MediaItemsTableTableTableManager extends RootTableManager<
             totalSeasons: totalSeasons,
             totalEpisodes: totalEpisodes,
             filePath: filePath,
+            isBoxSet: isBoxSet,
             sortOrder: sortOrder,
             cachedAt: cachedAt,
             rowid: rowid,
@@ -7685,6 +7798,7 @@ class $$MediaItemsTableTableTableManager extends RootTableManager<
             Value<int?> totalSeasons = const Value.absent(),
             Value<int?> totalEpisodes = const Value.absent(),
             Value<String?> filePath = const Value.absent(),
+            Value<bool> isBoxSet = const Value.absent(),
             Value<int> sortOrder = const Value.absent(),
             Value<int?> cachedAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
@@ -7722,6 +7836,7 @@ class $$MediaItemsTableTableTableManager extends RootTableManager<
             totalSeasons: totalSeasons,
             totalEpisodes: totalEpisodes,
             filePath: filePath,
+            isBoxSet: isBoxSet,
             sortOrder: sortOrder,
             cachedAt: cachedAt,
             rowid: rowid,

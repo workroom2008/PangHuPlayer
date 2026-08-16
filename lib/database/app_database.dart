@@ -147,6 +147,8 @@ class MediaLibrariesTable extends Table {
   TextColumn get title => text()();
   TextColumn get posterUrl => text().withDefault(const Constant(''))();
   TextColumn get type => text().withDefault(const Constant('folder'))();
+  // 库类型（movies/tvshows/boxsets 等），决定查询时是否带上 BoxSet 类型（Jellyfin 必需）
+  TextColumn get collectionType => text().nullable()();
   IntColumn get sortOrder => integer().withDefault(const Constant(0))();
 
   @override
@@ -187,6 +189,7 @@ class MediaItemsTable extends Table {
   IntColumn get totalSeasons => integer().nullable()();
   IntColumn get totalEpisodes => integer().nullable()();
   TextColumn get filePath => text().nullable()();
+  BoolColumn get isBoxSet => boolean().withDefault(const Constant(false))();
   IntColumn get sortOrder => integer().withDefault(const Constant(0))();
   IntColumn get cachedAt => integer().nullable()();
 
@@ -234,7 +237,23 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
+
+  /// drift 无列存在性检查 API；from<2 分支可能刚用当前定义建表（已含新列），
+  /// 也可能旧表存在但缺新列，用 try/catch 兜底 duplicate column。
+  Future<void> _tryAddColumn(Migrator m, TableInfo table, GeneratedColumn column) async {
+    try {
+      await m.addColumn(table, column);
+      AppLog.i('DB', 'migration: added ${column.name}');
+    } catch (e) {
+      final msg = e.toString();
+      if (msg.contains('duplicate column')) {
+        AppLog.i('DB', 'migration: ${column.name} already exists, skip');
+      } else {
+        rethrow;
+      }
+    }
+  }
 
   @override
   MigrationStrategy get migration {
@@ -256,6 +275,16 @@ class AppDatabase extends _$AppDatabase {
         // 建表定义已含该列，再加会报 duplicate column name
         if (from == 2) {
           await m.addColumn(mediaItemsTable, mediaItemsTable.cachedAt);
+        }
+        // v4：collectionType / isBoxSet 为新增列，任何旧版本都没有
+        await _tryAddColumn(m, mediaLibrariesTable, mediaLibrariesTable.collectionType);
+        await _tryAddColumn(m, mediaItemsTable, mediaItemsTable.isBoxSet);
+        // 旧缓存数据缺新列字段，失效缓存元数据，下次启动强制网络刷新补齐
+        try {
+          await m.database.delete(mediaCacheMetaTable).go();
+          AppLog.i('DB', 'migration: invalidated media cache meta');
+        } catch (e) {
+          AppLog.w('DB', 'migration: cache invalidation skipped: $e');
         }
       },
     );

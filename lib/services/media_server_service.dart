@@ -132,6 +132,7 @@ abstract class MediaServerService {
   /// 服务端不支持时返回空列表，UI 无数据则不显示分区
   Future<List<MediaItem>> getSimilarItems(String itemId) async => [];
   Future<void> markWatched(String itemId, {double? progress, int? positionMs});
+  Future<void> markUnwatched(String itemId);
   Future<void> reportPlaybackStart(String itemId, {String? mediaSourceId});
   Future<void> reportPlaybackProgress(String itemId, int positionMs, {bool isPlaying = true, String? mediaSourceId});
   Future<void> reportPlaybackStopped(String itemId, {int? positionMs, String? mediaSourceId});
@@ -361,7 +362,12 @@ class EmbyService extends MediaServerService {
       final items = (r.data['Items'] as List?) ?? [];
       AppLog.i('Emby', 'getLibraryItems($libraryId) uid=$userId: ${items.length} items (boxsets=$includeBoxSets)');
       return _parseItems(items);
-    } catch (e) { AppLog.e('Emby', 'getLibraryItems FAILED', e); return []; }
+    } catch (e) {
+      // 网络/鉴权错误必须向上抛：上层（首页缓存刷新）才能回退到旧数据，
+      // 而不是把错误吞成空列表，覆盖并清空正常的缓存
+      AppLog.e('Emby', 'getLibraryItems FAILED: $libraryId', e);
+      rethrow;
+    }
   }
 
   /// 分页拉取库内全部条目：Emby/Jellyfin 单页默认 50 条，大库只取第一页会"少".
@@ -531,6 +537,18 @@ class EmbyService extends MediaServerService {
       );
       AppLog.d('Emby', 'markWatched: itemId=$itemId, posTicks=${params['PlaybackPositionTicks']}');
     } catch (e) { AppLog.e('Emby', 'markWatched FAILED: $e'); }
+  }
+
+  /// 取消已观看（Emby/Jellyfin：UserData Played=false）
+  @override Future<void> markUnwatched(String itemId) async {
+    try {
+      await dio.post(
+        '/Users/$userId/Items/$itemId/UserData',
+        data: {'Played': false},
+        options: Options(contentType: Headers.jsonContentType),
+      );
+      AppLog.d('Emby', 'markUnwatched: itemId=$itemId');
+    } catch (e) { AppLog.e('Emby', 'markUnwatched FAILED: $e'); }
   }
 
   /// 播放开始上报 — 注册播放会话，使项目出现在"继续观看"列表
@@ -1618,6 +1636,17 @@ class FnOSService extends EmbyService {
       await _fnosPost('/item/watched', {'item_guid': itemId});
     } catch (e) {
       AppLog.w('FnOS', 'markWatched failed: $e');
+    }
+  }
+
+  @override
+  Future<void> markUnwatched(String itemId) async {
+    if (_jellyfinMode) return super.markUnwatched(itemId);
+    await _ensureAuth();
+    try {
+      await _fnosPost('/item/unwatched', {'item_guid': itemId});
+    } catch (e) {
+      AppLog.w('FnOS', 'markUnwatched failed: $e');
     }
   }
 

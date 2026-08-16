@@ -36,6 +36,8 @@ class _FakeService extends MediaServerService {
   @override
   Future<void> markWatched(String itemId, {double? progress, int? positionMs}) async {}
   @override
+  Future<void> markUnwatched(String itemId) async {}
+  @override
   Future<void> reportPlaybackStart(String itemId, {String? mediaSourceId}) async {}
   @override
   Future<void> reportPlaybackProgress(String itemId, int positionMs,

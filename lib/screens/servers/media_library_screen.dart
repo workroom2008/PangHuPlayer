@@ -384,11 +384,30 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
   }
 
   void _loadItems() {
-    _itemsFuture = widget.serverService.getLibraryItems(widget.library.id);
+    // boxsets 库需显式带上 BoxSet 类型（Jellyfin 用 Movie,Series 查合集返回 0）
+    _itemsFuture = widget.serverService.getLibraryItems(
+      widget.library.id,
+      includeBoxSets: widget.library.collectionType == 'boxsets',
+    );
     setState(() => _isLoading = false);
   }
 
   void _openItem(MediaItem item) {
+    // 合集（BoxSet）：点击后展示合集内的影视列表，而不是合集详情页
+    if (item.isBoxSet) {
+      Navigator.push(
+        context,
+        AppAnimations.buildPageRoute(
+          page: LibraryItemsScreen(
+            server: widget.server,
+            serverService: widget.serverService,
+            library: item,
+          ),
+          type: PageTransitionType.fadeSlide,
+        ),
+      );
+      return;
+    }
     Navigator.push(
       context,
       AppAnimations.buildPageRoute(

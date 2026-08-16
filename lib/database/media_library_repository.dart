@@ -85,6 +85,7 @@ class MediaLibraryRepository {
                 title: lib.title,
                 posterUrl: Value(lib.posterUrl),
                 type: Value(lib.type.name),
+                collectionType: Value(lib.collectionType),
                 sortOrder: Value(i),
               ),
               mode: InsertMode.insertOrReplace,
@@ -196,6 +197,7 @@ class MediaLibraryRepository {
                 title: lib.title,
                 posterUrl: Value(lib.posterUrl),
                 type: Value(lib.type.name),
+                collectionType: Value(lib.collectionType),
                 sortOrder: Value(i),
               ),
               mode: InsertMode.insertOrReplace,
@@ -342,6 +344,7 @@ class MediaLibraryRepository {
         (t) => t.name == row.type,
         orElse: () => MediaType.movie,
       ),
+      collectionType: row.collectionType,
     );
   }
 
@@ -380,6 +383,7 @@ class MediaLibraryRepository {
       totalSeasons: row.totalSeasons,
       totalEpisodes: row.totalEpisodes,
       filePath: row.filePath,
+      isBoxSet: row.isBoxSet,
     );
   }
 
@@ -422,6 +426,7 @@ class MediaLibraryRepository {
       totalSeasons: Value(item.totalSeasons),
       totalEpisodes: Value(item.totalEpisodes),
       filePath: Value(item.filePath),
+      isBoxSet: Value(item.isBoxSet),
       sortOrder: Value(sortOrder),
     );
   }

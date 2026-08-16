@@ -598,6 +598,42 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           _subtitleTracks = _filterSubtitleList(merged);
           _audioTracks = audios;
         });
+        // 详情页预设的默认字幕语言（剧集"应用到全部"）：优先按语言匹配选中，
+        // 找不到（该语言轨被过滤/不存在）时回落到下面的自动默认轨逻辑。
+        final prefSubLang = ref.read(playerSettingsProvider).defaultSubtitleLang;
+        if (_currentSubtitleIndex == -1 &&
+            !_autoDefaultSubtitleApplied &&
+            !_userDisabledSubtitles &&
+            prefSubLang != null) {
+          final prefIdx = _subtitleTracks.indexWhere((t) =>
+              (t['Language'] ?? t['language'] ?? '')
+                      .toString()
+                      .toLowerCase() ==
+                  prefSubLang.toLowerCase() &&
+              t['isBitmap'] != true);
+          if (prefIdx >= 0) {
+            _autoDefaultSubtitleApplied = true;
+            AppLog.i('Player', '按详情页偏好启用字幕轨: lang=$prefSubLang index=$prefIdx');
+            _applySubtitleTrack(prefIdx);
+          }
+        }
+        // 详情页预设的默认音轨语言：按语言匹配自动切换（未在播放器内手动选过时）
+        final prefAudioLang = ref.read(playerSettingsProvider).defaultAudioLang;
+        if (prefAudioLang != null &&
+            _audioTracks.length > 1 &&
+            _currentAudioIndex == 0) {
+          String langOf(Map<String, dynamic> t) =>
+              (t['Language'] ?? t['language'] ?? '').toString().toLowerCase();
+          if (langOf(_audioTracks[0]) != prefAudioLang.toLowerCase()) {
+            final prefAudioIdx = _audioTracks
+                .indexWhere((t) => langOf(t) == prefAudioLang.toLowerCase());
+            if (prefAudioIdx >= 0) {
+              AppLog.i('Player', '按详情页偏好启用音轨: lang=$prefAudioLang index=$prefAudioIdx');
+              _engine?.setAudioTrack(prefAudioIdx);
+              setState(() => _currentAudioIndex = prefAudioIdx);
+            }
+          }
+        }
         // 自动启用文件标记为默认的字幕轨（WEB-DL 通常默认简体中文）。
         // 原生轨（无需服务器提取、直接从视频流读取）就绪后优先选原生轨；
         // 原生轨始终未就绪（转码流/无内嵌轨）时等几轮后回退服务端轨。

@@ -34,6 +34,10 @@ class PlayerSettings {
   final double subtitleDelaySeconds;      // 字幕延迟（秒，正=延后，负=提前）
   final String? subtitleFontPath;          // 自定义字幕字体文件路径（Exo 外挂字幕 Flutter 层渲染生效）
 
+  // 详情页预设的默认轨（按语言匹配，跨剧集稳定，实现"应用到全部"）
+  final String? defaultSubtitleLang;      // 如 'zho'/'eng'，null=未设置
+  final String? defaultAudioLang;         // 如 'zho'/'eng'，null=未设置
+
   // 手势
   final bool enableGestureSeek;
   final bool enableGestureVolume;
@@ -72,6 +76,8 @@ class PlayerSettings {
     this.subtitleAssOverride = true,
     this.subtitleDelaySeconds = 0.0,
     this.subtitleFontPath,
+    this.defaultSubtitleLang,
+    this.defaultAudioLang,
 
     this.enableGestureSeek = true,
     this.enableGestureVolume = true,
@@ -111,6 +117,8 @@ class PlayerSettings {
     bool? subtitleAssOverride,
     double? subtitleDelaySeconds,
     String? subtitleFontPath,
+    String? defaultSubtitleLang,
+    String? defaultAudioLang,
     bool? enableGestureSeek,
     bool? enableGestureVolume,
     bool? enableGestureBrightness,
@@ -146,6 +154,8 @@ class PlayerSettings {
       subtitleAssOverride: subtitleAssOverride ?? this.subtitleAssOverride,
       subtitleDelaySeconds: subtitleDelaySeconds ?? this.subtitleDelaySeconds,
       subtitleFontPath: subtitleFontPath ?? this.subtitleFontPath,
+      defaultSubtitleLang: defaultSubtitleLang ?? this.defaultSubtitleLang,
+      defaultAudioLang: defaultAudioLang ?? this.defaultAudioLang,
       enableGestureSeek: enableGestureSeek ?? this.enableGestureSeek,
       enableGestureVolume: enableGestureVolume ?? this.enableGestureVolume,
       enableGestureBrightness: enableGestureBrightness ?? this.enableGestureBrightness,
@@ -183,6 +193,8 @@ class PlayerSettings {
     'subtitleAssOverride': subtitleAssOverride,
     'subtitleDelaySeconds': subtitleDelaySeconds,
     'subtitleFontPath': subtitleFontPath,
+    'defaultSubtitleLang': defaultSubtitleLang,
+    'defaultAudioLang': defaultAudioLang,
     'enableGestureSeek': enableGestureSeek,
     'enableGestureVolume': enableGestureVolume,
     'enableGestureBrightness': enableGestureBrightness,
@@ -220,6 +232,8 @@ class PlayerSettings {
       subtitleAssOverride: json['subtitleAssOverride'] ?? true,
       subtitleDelaySeconds: (json['subtitleDelaySeconds'] ?? 0.0).toDouble(),
       subtitleFontPath: json['subtitleFontPath'] as String?,
+      defaultSubtitleLang: json['defaultSubtitleLang'] as String?,
+      defaultAudioLang: json['defaultAudioLang'] as String?,
 
       enableGestureSeek: json['enableGestureSeek'] ?? true,
       enableGestureVolume: json['enableGestureVolume'] ?? true,

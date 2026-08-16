@@ -643,6 +643,25 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
   }
 
   void _openItemDetail(MediaItem item) {
+    // 合集（BoxSet）：点击后展示合集内的影视列表，而不是合集详情页
+    if (item.isBoxSet) {
+      final servers = ref.read(mediaServersProvider);
+      final server = servers.where((s) => s.isDefault).firstOrNull ?? servers.firstOrNull;
+      final service = ref.read(currentMediaServerServiceProvider);
+      if (server == null || service == null) return;
+      Navigator.push(
+        context,
+        AppAnimations.buildPageRoute(
+          page: LibraryItemsScreen(
+            server: server,
+            serverService: service,
+            library: item,
+          ),
+          type: PageTransitionType.fadeSlide,
+        ),
+      );
+      return;
+    }
     // 如果继续观看的是剧集，跳转到系列详情页并标记选中该集
     if (item.type == MediaType.episode && item.seriesId != null) {
       context.push('/detail/${item.seriesId}', extra: {
@@ -1610,12 +1629,18 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
         delegate: SliverChildBuilderDelegate(
           (context, index) {
             final item = items[index];
-            return _SenPlayerCard(
+            // 入场动画只给首屏卡片：长列表快速下滑时全局 index 可达数百，
+            // delay=20ms×index 会累积到数秒，滚动进入的卡片会长时间空白
+            Widget card = _SenPlayerCard(
               item: item,
               isPortrait: _isPortraitCard,
               textColor: _textColor,
               onTap: () => _openDetail(item),
-            ).animate().fadeIn(delay: Duration(milliseconds: 20 * index));
+            );
+            if (index < 24) {
+              card = card.animate().fadeIn(delay: Duration(milliseconds: 20 * index));
+            }
+            return card;
           },
           childCount: items.length,
         ),
@@ -1646,7 +1671,7 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
           (context, index) {
             final entry = genreList[index];
             final firstItem = entry.value.isNotEmpty ? entry.value.first : null;
-            return _GenreCard(
+            Widget card = _GenreCard(
               genre: entry.key,
               count: entry.value.length,
               posterUrl: firstItem?.posterUrl ?? '',
@@ -1657,7 +1682,12 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
                 _currentTab = 0;
                 _tabController.index = 0;
               }),
-            ).animate().fadeIn(delay: Duration(milliseconds: 20 * index));
+            );
+            // 同网格：fadeIn delay 随 index 线性放大，快速滑动时只对首屏动画
+            if (index < 24) {
+              card = card.animate().fadeIn(delay: Duration(milliseconds: 20 * index));
+            }
+            return card;
           },
           childCount: genreList.length,
         ),
@@ -1689,7 +1719,7 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
           (context, index) {
             final entry = folderList[index];
             final firstItem = entry.value.isNotEmpty ? entry.value.first : null;
-            return _FolderCard(
+            Widget card = _FolderCard(
               folderName: entry.key,
               count: entry.value.length,
               posterUrl: firstItem?.posterUrl ?? '',
@@ -1700,7 +1730,12 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
                 _currentTab = 0;
                 _tabController.index = 0;
               }),
-            ).animate().fadeIn(delay: Duration(milliseconds: 20 * index));
+            );
+            // 同网格：fadeIn delay 随 index 线性放大，快速滑动时只对首屏动画
+            if (index < 24) {
+              card = card.animate().fadeIn(delay: Duration(milliseconds: 20 * index));
+            }
+            return card;
           },
           childCount: folderList.length,
         ),
@@ -1910,18 +1945,36 @@ class _SenPlayerCard extends StatelessWidget {
                       imageUrl: item.posterUrl,
                       fit: BoxFit.cover,
                       memCacheWidth: 300,
+                      // 占位用主题骨架色（浅色模式为可见的浅灰块，深色模式为暗灰），
+                      // 而不是半透明灰——浅色背景下 30% 透明灰≈白，看起来像空白
                       placeholder: (_, __) => Container(
-                        color: Colors.grey.withValues(alpha: 0.3),
+                        color: context.textPrimary.withValues(alpha: 0.08),
+                        child: Center(
+                          child: Icon(
+                            Icons.movie,
+                            color: context.textPrimary.withValues(alpha: 0.4),
+                          ),
+                        ),
                       ),
                       errorWidget: (_, __, ___) => Container(
-                        color: Colors.grey.withValues(alpha: 0.3),
-                        child: Icon(Icons.movie, color: context.textPrimary30),
+                        color: context.textPrimary.withValues(alpha: 0.08),
+                        child: Center(
+                          child: Icon(
+                            Icons.movie,
+                            color: context.textPrimary.withValues(alpha: 0.4),
+                          ),
+                        ),
                       ),
                     )
                   else
                     Container(
-                      color: Colors.grey.withValues(alpha: 0.3),
-                      child: Icon(Icons.movie, color: context.textPrimary30),
+                      color: context.textPrimary.withValues(alpha: 0.08),
+                      child: Center(
+                        child: Icon(
+                          Icons.movie,
+                          color: context.textPrimary.withValues(alpha: 0.4),
+                        ),
+                      ),
                     ),
                   if (item.rating != null && item.rating! > 0)
                     Positioned(

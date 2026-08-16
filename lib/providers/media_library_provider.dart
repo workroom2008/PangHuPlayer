@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../models/media_models.dart';
 import '../services/media_server_service.dart';
 import '../database/media_library_repository.dart';
+import '../services/storage_service.dart';
 import 'app_providers.dart';
 import '../utils/app_log.dart';
 
@@ -113,6 +114,11 @@ class MediaLibraryNotifier extends StateNotifier<MediaLibraryState> {
     }
   }
 
+  /// 缓存数据格式版本：结构变化（新增字段）时 +1，旧缓存强制失效触发一次网络刷新。
+  /// 按服务器分别记录，避免一台服务器刷新后另一台的旧缓存被误判为已是最新格式。
+  static const int _cacheFormatVersion = 2;
+  static String _cacheFormatKey(String serverId) => 'media_cache_format_$serverId';
+
   Future<void> loadAll({bool forceRefresh = false}) async {
     final service = _service;
     final serverId = _currentServerId;
@@ -121,17 +127,23 @@ class MediaLibraryNotifier extends StateNotifier<MediaLibraryState> {
     final cacheLoaded = await _loadFromDb(serverId);
     final hasCache = cacheLoaded && state.libraries.isNotEmpty;
     final cacheFresh = _isCacheFresh();
+    // v2：media_items 缓存新增 isBoxSet、media_libraries 新增 collectionType，
+    // 旧缓存缺字段，即使未过期也强制刷新一次
+    final cacheFormatValid = (StorageService.getInt(_cacheFormatKey(serverId)) ?? 0) >= _cacheFormatVersion;
 
     if (!hasCache) {
       state = state.copyWith(isLoading: true);
-    } else if (forceRefresh) {
+    } else if (forceRefresh || !cacheFormatValid) {
       state = state.copyWith(isRefreshing: true);
     }
 
-    if (hasCache && cacheFresh && !forceRefresh) {
+    if (hasCache && cacheFresh && !forceRefresh && cacheFormatValid) {
       AppLog.i('MediaLibrary', 'Cache is fresh, skipping network refresh');
       state = state.copyWith(isLoading: false);
       return;
+    }
+    if (!cacheFormatValid) {
+      AppLog.i('MediaLibrary', 'Cache format outdated (stored < $_cacheFormatVersion), forcing refresh');
     }
 
     try {
@@ -205,6 +217,8 @@ class MediaLibraryNotifier extends StateNotifier<MediaLibraryState> {
       AppLog.i('MediaLibrary', 'Load complete: ${libraries.length} libraries, ${allItems.length} items');
 
       _saveToDbBackground(serverId, libraries, itemsMap, enrichedCarousel, now);
+      // 刷新成功且数据带最新缓存格式，记录版本号（下次启动不再强制刷新）
+      StorageService.setInt(_cacheFormatKey(serverId), _cacheFormatVersion);
 
       _preloadAllImages(libraries, itemsMap, state.carouselItems, service);
     } catch (e) {
@@ -215,6 +229,16 @@ class MediaLibraryNotifier extends StateNotifier<MediaLibraryState> {
         errorMessage: hasCache ? '刷新失败，显示缓存数据' : e.toString(),
       );
     }
+  }
+
+  /// 联动首页/列表卡片右上角已观看绿勾（详情页标记/取消已观看后调用）
+  void markWatchedLocal(String itemId, {bool watched = true}) {
+    final itemsMap = state.libraryItems.map((libId, items) => MapEntry(
+          libId,
+          items.map((i) => i.id == itemId ? i.copyWith(isWatched: watched) : i).toList(),
+        ));
+    state = state.copyWith(libraryItems: itemsMap);
+    AppLog.i('MediaLibrary', 'markWatchedLocal: $itemId watched=$watched');
   }
 
   bool _isCacheFresh() {

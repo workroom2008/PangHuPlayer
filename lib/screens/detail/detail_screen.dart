@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:palette_generator/palette_generator.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../services/http_client.dart';
 import '../../providers/app_providers.dart';
 import '../../providers/media_library_provider.dart';
@@ -18,7 +17,7 @@ import '../../utils/animation_config.dart';
 import '../../widgets/server_image.dart';
 import '../../widgets/tap_feedback.dart';
 import '../../widgets/hero_flight.dart';
-import '../danmaku/danmaku_screen.dart';
+import '../../widgets/track_selector_sheet.dart';
 
 class DetailScreen extends ConsumerStatefulWidget {
   final MediaItem item;
@@ -70,6 +69,9 @@ class DetailScreen extends ConsumerStatefulWidget {
 class _DetailScreenState extends ConsumerState<DetailScreen> {
   MediaItem? _full;
   bool _fav = false;
+  bool _watched = false;
+  String? _selectedSubtitleLang; // 详情页预设的默认字幕语言（剧集全部集生效）
+  String? _selectedAudioLang;    // 详情页预设的默认音频语言
   bool _expanded = false;
   List<MediaItem> _seasons = [], _episodes = [];
   String? _seasonId;
@@ -134,6 +136,12 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
       _loadServerName();
       _load();
       _checkFavorites();
+
+      // 读取详情页预设的默认字幕/音频偏好（跨剧集全局生效）
+      final ps = ref.read(playerSettingsProvider);
+      _selectedSubtitleLang = ps.defaultSubtitleLang;
+      _selectedAudioLang = ps.defaultAudioLang;
+      _watched = widget.item.isWatched == true;
     
       // 异步提取封面颜色（后台执行，不阻塞）
       _extractCoverColor();
@@ -271,6 +279,9 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
     if (tmdbId != null) {
       final service = await ref.read(favoriteServiceProvider.future);
       setState(() => _fav = service.isFavorite(tmdbId));
+    } else if (_inLibrary) {
+      // 服务器媒体 id 是 GUID，非 TMDB id：收藏状态来自服务端返回的 isFavorite
+      setState(() => _fav = _item.isFavorite == true);
     }
   }
 
@@ -301,6 +312,8 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
           _inLibrary = true; 
           _libraryItemId = d.id; 
           _checkingLibrary = false; 
+          if (int.tryParse(widget.item.id) == null) _fav = d.isFavorite == true;
+          _watched = _watched || d.isWatched == true;
         });
         if (d.type == MediaType.series) {
           _loadSeasonsAndEpisodes(svc, d.id);
@@ -348,6 +361,9 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
       setState(() { 
         _full = d; 
         _libraryItemId = d.id; 
+        // 服务器媒体：同步服务端返回的收藏/已观看状态
+        if (int.tryParse(widget.item.id) == null) _fav = d.isFavorite == true;
+        _watched = _watched || d.isWatched == true;
       });
       if (d.type == MediaType.series) {
         _loadSeasonsAndEpisodes(svc, d.id);
@@ -646,35 +662,52 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
     }
   }
 
-  /// 标记为已观看（真实调用服务端 markWatched）
+  /// 已观看按钮当前语义：选中剧集时显示该集状态，未选中时显示整体状态
+  bool get _currentWatched =>
+      _selectedEpisode?.isWatched == true || (_selectedEpisode == null && _watched);
+
+  /// 切换已观看（真实调用服务端；按钮变色，并联动列表卡片绿勾）
+  /// 剧集：精确到当前选中的集（按钮状态与集卡片右上角绿勾同步）；
+  /// 未选中集/电影时作用于整体并联动首页/查看全部卡片。
   Future<void> _markWatched() async {
     final svc = _svc;
     if (svc == null) return;
-    final id = _libraryItemId ?? _item.id;
+    final target = _selectedEpisode;
+    final id = target?.id ?? _libraryItemId ?? _item.id;
+    final currentlyWatched = _currentWatched;
     try {
-      await svc.markWatched(id);
+      if (currentlyWatched) {
+        await svc.markUnwatched(id);
+      } else {
+        await svc.markWatched(id);
+      }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已标记为已观看'), duration: Duration(seconds: 1)));
+        setState(() {
+          if (target != null) {
+            // 精确到集：更新当前集与集卡片列表（右上角绿勾实时联动）
+            _selectedEpisode = target.copyWith(isWatched: !currentlyWatched);
+            _episodes = _episodes
+                .map((e) => e.id == target.id
+                    ? e.copyWith(isWatched: !currentlyWatched)
+                    : e)
+                .toList();
+          } else {
+            _watched = !currentlyWatched;
+            // 联动：更新媒体库状态，返回首页/查看全部后卡片右上角显示/隐藏绿勾
+            ref
+                .read(mediaLibraryProvider.notifier)
+                .markWatchedLocal(id, watched: !currentlyWatched);
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(currentlyWatched ? '已取消已观看' : '已标记为已观看'),
+          duration: const Duration(seconds: 1),
+        ));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('标记失败: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('操作失败: $e')));
       }
-    }
-  }
-
-  /// 分享：用默认浏览器打开服务器 Web 详情页（真实功能）
-  Future<void> _shareItem() async {
-    final server = widget.server ?? ref.read(mediaServersProvider).where((s) => s.isDefault).firstOrNull;
-    if (server == null) return;
-    final url = '${server.url}/#!/details?id=${_item.id}';
-    try {
-      final ok = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-      if (!ok && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('无法打开浏览器')));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('分享失败: $e')));
     }
   }
 
@@ -716,32 +749,112 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
         ),
         const SizedBox(width: 14),
         roundIcon(
-          icon: Icons.comment_rounded,
-          color: Colors.white70,
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DanmakuScreen())),
-          tooltip: '弹幕源设置',
+          icon: _selectedSubtitleLang != null ? Icons.subtitles_rounded : Icons.subtitles_outlined,
+          color: _selectedSubtitleLang != null ? AppTheme.primary : Colors.white70,
+          onTap: _selectSubtitle,
+          tooltip: _selectedSubtitleLang != null ? '字幕: ${_selectedSubtitleLang}' : '选择字幕',
+        ),
+        const SizedBox(width: 14),
+        roundIcon(
+          icon: Icons.audiotrack_rounded,
+          color: _selectedAudioLang != null ? AppTheme.primary : Colors.white70,
+          onTap: _selectAudio,
+          tooltip: _selectedAudioLang != null ? '音频: ${_selectedAudioLang}' : '选择音频',
         ),
         if (_inLibrary) ...[
           const SizedBox(width: 14),
           roundIcon(
-            icon: Icons.done_all_rounded,
-            color: Colors.white70,
+            icon: _currentWatched ? Icons.check_circle_rounded : Icons.check_circle_outline_rounded,
+            color: _currentWatched ? AppTheme.primary : Colors.white70,
             onTap: _markWatched,
-            tooltip: '标记已观看',
-          ),
-          const SizedBox(width: 14),
-          roundIcon(
-            icon: Icons.share_rounded,
-            color: Colors.white70,
-            onTap: _shareItem,
-            tooltip: '分享',
+            tooltip: _currentWatched ? '取消已观看' : '标记已观看',
           ),
         ],
       ],
     );
   }
 
+  /// 轨道语言字段（MediaStreams 的 Language/language）
+  String? _trackLang(Map<String, dynamic> t) {
+    final lang = (t['Language'] ?? t['language'] ?? '').toString();
+    return lang.isEmpty ? null : lang;
+  }
+
+  /// 选择默认字幕轨（存语言偏好，剧集的所有集都套用，即"应用到全部"）
+  Future<void> _selectSubtitle() async {
+    final tracks = _item.subtitleTracks ?? const <Map<String, dynamic>>[];
+    if (tracks.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('该媒体无可用字幕轨'), duration: Duration(seconds: 1)));
+      }
+      return;
+    }
+    final current = _selectedSubtitleLang != null
+        ? tracks.indexWhere((t) => _trackLang(t) == _selectedSubtitleLang)
+        : -1;
+    await TrackSelectorSheet.show(
+      context: context,
+      title: '字幕',
+      tracks: tracks,
+      currentIndex: current,
+      onSelect: (i) {
+        final lang = i >= 0 && i < tracks.length ? _trackLang(tracks[i]) : null;
+        ref.read(playerSettingsProvider.notifier)
+            .update((s) => s.copyWith(defaultSubtitleLang: lang));
+        if (mounted) setState(() => _selectedSubtitleLang = lang);
+      },
+    );
+  }
+
+  /// 选择默认音轨（存语言偏好，播放器按语言自动应用）
+  Future<void> _selectAudio() async {
+    final tracks = _item.audioTracks ?? const <Map<String, dynamic>>[];
+    if (tracks.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('该媒体无可用音轨'), duration: Duration(seconds: 1)));
+      }
+      return;
+    }
+    final current = _selectedAudioLang != null
+        ? tracks.indexWhere((t) => _trackLang(t) == _selectedAudioLang)
+        : -1;
+    await TrackSelectorSheet.show(
+      context: context,
+      title: '音频',
+      tracks: tracks,
+      currentIndex: current,
+      onSelect: (i) {
+        final lang = i >= 0 && i < tracks.length ? _trackLang(tracks[i]) : null;
+        ref.read(playerSettingsProvider.notifier)
+            .update((s) => s.copyWith(defaultAudioLang: lang));
+        if (mounted) setState(() => _selectedAudioLang = lang);
+      },
+    );
+  }
+
   void _toggleFav() async {
+    final svc = _svc;
+    // 服务器媒体（GUID id）：调用服务端收藏接口，状态立即反映到按钮
+    if (_inLibrary && svc != null && _libraryItemId != null && _libraryItemId!.isNotEmpty) {
+      final id = _libraryItemId!;
+      try {
+        if (_fav) {
+          await svc.unmarkFavorite(id);
+        } else {
+          await svc.markFavorite(id);
+        }
+        if (mounted) setState(() => _fav = !_fav);
+      } catch (e) {
+        AppLog.w('Detail', 'toggleFav server failed: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('收藏失败: $e')));
+        }
+      }
+      return;
+    }
+
     final tmdbId = int.tryParse(widget.item.id);
     if (tmdbId == null) return;
     

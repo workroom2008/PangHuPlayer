@@ -52,14 +52,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         color: context.textPrimary,
                       ),
                     ),
-                    SizedBox(height: 8),
-                    Text(
-                      '配置播放器和服务',
-                      style: TextStyle(
-                        color: context.textPrimary.withValues(alpha: 0.5),
-                        fontSize: 14,
-                      ),
-                    ),
                   ],
                 ),
               ),
