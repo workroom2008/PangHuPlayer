@@ -28,6 +28,7 @@ import '../../providers/app_providers.dart';
 import '../../utils/app_log.dart';
 import '../../utils/animation_config.dart';
 import '../../utils/chinese_converter.dart';
+import '../../utils/track_titles.dart';
 import 'package:crypto/crypto.dart';
 import '../../widgets/online_subtitle_sheet.dart';
 import '../../services/opensubtitles_service.dart';
@@ -532,11 +533,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             .map((t) {
               final map = Map<String, dynamic>.from(t);
               map['server'] = true;
-              map['title'] = map['DisplayTitle']?.toString()
-                  ?? map['Title']?.toString()
-                  ?? map['Language']?.toString()
-                  ?? map['language']?.toString()
-                  ?? '字幕';
+              // 标题沿用服务端 DisplayTitle/Title（规范命名），
+              // 没有则用语言码，最后才是"字幕"占位
+              map['title'] = trackDisplayTitle(map, prefix: '字幕');
               return map;
             })
             .toList();
@@ -591,12 +590,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
           return rank(a).compareTo(rank(b));
         });
+        // 音轨合并服务端 MediaStreams：引擎轨按 (语言,编码) 配对服务端流，
+        // 用服务端 DisplayTitle 规范命名（修复"音轨 1/2"）；保持引擎顺序，
+        // 不追加服务端独有轨（引擎无对应原生轨时无法直接切换）。
+        final serverAudios =
+            _activeMedia.audioTracks ?? const <Map<String, dynamic>>[];
+        final audiosMerged = _mergeServerAudioTracks(audios, serverAudios);
         setState(() {
           _fullSubtitleTracks = merged;
           // 面板默认只显示 中/英/默认轨，其余语言收进"显示全部"，
           // 避免 WEB-DL 多语言轨墙（用户已展开过则保持全量显示）
           _subtitleTracks = _filterSubtitleList(merged);
-          _audioTracks = audios;
+          _audioTracks = audiosMerged;
         });
         // 详情页预设的默认字幕语言（剧集"应用到全部"）：优先按语言匹配选中，
         // 找不到（该语言轨被过滤/不存在）时回落到下面的自动默认轨逻辑。
@@ -729,6 +734,75 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (c.contains('cea') || c.contains('eia')) return 'cea';
     if (c == 'text' || c.contains('tx3g') || c.contains('mov_text')) return 'text';
     return c;
+  }
+
+  /// 音轨合并服务端 MediaStreams：按 (语言,编码) 配对，把服务端 DisplayTitle/
+  /// Title 贴到原生轨上（面板与 toast 显示规范名称而非"音轨 1/2"）。
+  /// 编码命名不一致（mpv 'dts-hdma' vs 服务端 'dts'）时按语言兑底配对。
+  /// 保持引擎顺序且不追加服务端独有轨：列表索引 == 引擎索引，切换不受影响。
+  List<Map<String, dynamic>> _mergeServerAudioTracks(
+      List<Map<String, dynamic>> engineTracks,
+      List<Map<String, dynamic>> serverTracks) {
+    if (serverTracks.isEmpty) return engineTracks;
+    final groups = <String, List<Map<String, dynamic>>>{};
+    for (final s in serverTracks) {
+      groups.putIfAbsent(_audioMatchKey(s), () => []).add(s);
+    }
+    final consumed = <String, int>{};
+    Map<String, dynamic>? take(String key) {
+      final g = groups[key];
+      final used = consumed[key] ?? 0;
+      if (g != null && used < g.length) {
+        consumed[key] = used + 1;
+        return g[used];
+      }
+      return null;
+    }
+
+    final result = <Map<String, dynamic>>[];
+    for (final n in engineTracks) {
+      final merged = Map<String, dynamic>.from(n);
+      final lang = (merged['Language'] ?? merged['language'] ?? '')
+          .toString()
+          .toLowerCase();
+      final codec =
+          (merged['Codec'] ?? merged['codec'] ?? '').toString().toLowerCase();
+      // 先按 (语言,编码) 精确配对；编码命名不一致（如 dts vs dts-hdma）时按语言兑底
+      var server = take('$lang|$codec');
+      if (server == null && codec.isNotEmpty) server = take('$lang|');
+      if (server != null) {
+        // 服务端有可读名（DisplayTitle/Title）就覆盖，否则用语言码；
+        // 都没有则保留引擎原生名（如"音轨 1"）
+        final serverName =
+            (server['DisplayTitle'] ?? server['Title'] ?? '').toString().trim();
+        if (serverName.isNotEmpty) {
+          merged['title'] = serverName;
+        } else {
+          final serverLang =
+              (server['Language'] ?? server['language'] ?? '').toString().trim();
+          if (serverLang.isNotEmpty) merged['title'] = serverLang;
+        }
+        merged['Language'] =
+            server['Language'] ?? server['language'] ?? merged['Language'] ?? '';
+        merged['language'] =
+            server['Language'] ?? server['language'] ?? merged['language'] ?? '';
+        merged['codec'] =
+            server['Codec']?.toString() ?? merged['codec'] ?? '';
+        merged['Channels'] =
+            server['Channels'] ?? merged['Channels'] ?? '';
+        merged['channels'] =
+            server['Channels'] ?? merged['channels'] ?? '';
+      }
+      result.add(merged);
+    }
+    return result;
+  }
+
+  /// 音轨配对键：语言 + 编码（小写），与字幕轨同套（服务端大写 key 兼容）
+  String _audioMatchKey(Map<String, dynamic> t) {
+    final lang = (t['Language'] ?? t['language'] ?? '').toString().toLowerCase();
+    final codec = (t['Codec'] ?? t['codec'] ?? '').toString().toLowerCase();
+    return '$lang|$codec';
   }
 
   /// 面板字幕列表：默认只保留 默认轨/中/英，其余语言收进"显示全部"占位轨。

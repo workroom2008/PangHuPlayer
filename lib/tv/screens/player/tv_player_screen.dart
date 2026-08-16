@@ -24,6 +24,7 @@ import '../../../player/danmaku/danmaku_renderer.dart';
 import '../../../player/danmaku/danmaku_models.dart';
 import '../../../player/subtitle/libass_bridge.dart';
 import '../../../utils/animation_config.dart';
+import '../../../utils/track_titles.dart';
 import '../../utils/tv_focus.dart';
 import '../../widgets/focusable_widgets.dart';
 
@@ -412,33 +413,67 @@ class _TvPlayerScreenState extends ConsumerState<TvPlayerScreen>
   }
 
   /// 将引擎返回的简单轨道信息与服务端详情中的完整元数据合并
+  /// 按 (语言,编码) 配对（引擎轨顺序与服务端 MediaStreams 顺序可能不一致，
+  /// 按索引硬配会贴错名字）；保持引擎顺序 → 列表索引 == 引擎索引，切换不受影响。
   List<Map<String, dynamic>> _mergeTrackInfo(
       List<Map<String, dynamic>> engineTracks,
       List<Map<String, dynamic>>? serverTracks) {
     if (serverTracks == null || serverTracks.isEmpty) return engineTracks;
-    final result = <Map<String, dynamic>>[];
-    for (int i = 0; i < engineTracks.length; i++) {
-      final engineTrack = Map<String, dynamic>.from(engineTracks[i]);
-      // 按索引匹配服务端轨道
-      if (i < serverTracks.length) {
-        final serverTrack = serverTracks[i];
-        // 优先使用服务端的 DisplayTitle/Title
-        final displayTitle = serverTrack['DisplayTitle']?.toString()
-            ?? serverTrack['Title']?.toString()
-            ?? serverTrack['Name']?.toString();
-        final language = serverTrack['Language']?.toString();
-        if (displayTitle != null && displayTitle.isNotEmpty) {
-          engineTrack['title'] = displayTitle;
-        } else if (language != null && language.isNotEmpty) {
-          engineTrack['title'] = language;
-        }
-        engineTrack['language'] = language;
-        engineTrack['codec'] = serverTrack['Codec']?.toString();
-        engineTrack['displayTitle'] = displayTitle;
+    final groups = <String, List<Map<String, dynamic>>>{};
+    for (final s in serverTracks) {
+      groups.putIfAbsent(_trackMatchKey(s), () => []).add(s);
+    }
+    final consumed = <String, int>{};
+    Map<String, dynamic>? take(String key) {
+      final g = groups[key];
+      final used = consumed[key] ?? 0;
+      if (g != null && used < g.length) {
+        consumed[key] = used + 1;
+        return g[used];
       }
-      result.add(engineTrack);
+      return null;
+    }
+
+    final result = <Map<String, dynamic>>[];
+    for (final engineTrack in engineTracks) {
+      final merged = Map<String, dynamic>.from(engineTrack);
+      final lang = (merged['Language'] ?? merged['language'] ?? '')
+          .toString()
+          .toLowerCase();
+      final codec =
+          (merged['Codec'] ?? merged['codec'] ?? '').toString().toLowerCase();
+      // 先按 (语言,编码) 精确配对；编码命名不一致（dts vs dts-hdma）时按语言兑底
+      var server = take('$lang|$codec');
+      if (server == null && codec.isNotEmpty) server = take('$lang|');
+      if (server != null) {
+        // 服务端有可读名（DisplayTitle/Title）就覆盖，否则用语言码；
+        // 都没有则保留引擎原生名（如"音轨 1"）
+        final serverName =
+            (server['DisplayTitle'] ?? server['Title'] ?? '').toString().trim();
+        final serverLang =
+            (server['Language'] ?? server['language'] ?? '').toString().trim();
+        if (serverName.isNotEmpty) {
+          merged['title'] = serverName;
+        } else if (serverLang.isNotEmpty) {
+          merged['title'] = serverLang;
+        }
+        if (serverLang.isNotEmpty) {
+          merged['language'] = serverLang;
+          merged['Language'] = serverLang;
+        }
+        merged['codec'] = server['Codec']?.toString() ?? merged['codec'] ?? '';
+        merged['displayTitle'] = serverName;
+      }
+      result.add(merged);
     }
     return result;
+  }
+
+  /// 轨道配对键：语言 + 编码（小写，兼容服务端大写 key）
+  String _trackMatchKey(Map<String, dynamic> t) {
+    final lang = (t['Language'] ?? t['language'] ?? '').toString().toLowerCase();
+    final codec = (t['Codec'] ?? t['codec'] ?? '').toString().toLowerCase();
+    return '$lang|$codec';
   }
 
   /// 加载跳过片头片尾信息
@@ -1736,10 +1771,7 @@ class _TvPlayerScreenState extends ConsumerState<TvPlayerScreen>
                 );
               }
               final track = _subtitleTracks[idx - 1];
-              final name = track['displayTitle']?.toString()
-                  ?? track['Title']?.toString()
-                  ?? track['title']?.toString()
-                  ?? '字幕 $idx';
+              final name = trackDisplayTitle(track, index: idx - 1);
               return ListTile(
                 title: Text(
                   name,
@@ -1870,9 +1902,7 @@ class _TvPlayerScreenState extends ConsumerState<TvPlayerScreen>
             itemCount: _audioTracks.length,
             itemBuilder: (ctx, idx) {
               final track = _audioTracks[idx];
-              final name = track['displayTitle']?.toString()
-                  ?? track['title']?.toString()
-                  ?? '音轨 ${idx + 1}';
+              final name = trackDisplayTitle(track, index: idx, prefix: '音轨');
               return ListTile(
                 title: Text(
                   name,

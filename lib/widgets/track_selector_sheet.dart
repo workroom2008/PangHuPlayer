@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
+import '../utils/track_titles.dart';
 
 /// 底部抽屉样式的轨道选择面板（字幕/音频通用）
 ///
@@ -273,7 +274,7 @@ class _TrackSelectorSheetState extends State<TrackSelectorSheet> {
   }
 
   Widget _buildRow(Map<String, dynamic> track, int realIndex) {
-    final title = (track['title'] ?? track['language'] ?? '轨 ${realIndex + 1}').toString();
+    final title = trackDisplayTitle(track, index: realIndex);
     final lang = (track['language'] ?? '').toString();
     final codec = (track['codec'] ?? track['Codec'] ?? '').toString();
     final isDefault = track['isDefault'] == true || track['IsDefault'] == true;

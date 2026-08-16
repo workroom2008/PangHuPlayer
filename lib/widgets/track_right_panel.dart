@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../utils/track_titles.dart';
 
 /// 右侧滑入的轨道选择面板（音频/字幕通用）
 /// Netflix 风格：从右侧滑入，半透明毛玻璃背景
@@ -243,7 +244,7 @@ class _TrackRightPanelState extends State<TrackRightPanel>
   }
 
   Widget _buildTrackRow(Map<String, dynamic> track, int realIndex) {
-    final title = (track['title'] ?? track['language'] ?? '\u8F68 ${realIndex + 1}').toString();
+    final title = trackDisplayTitle(track, index: realIndex);
     final lang = (track['language'] ?? '').toString();
     final codec = (track['codec'] ?? track['Codec'] ?? '').toString();
     final channels = (track['channels'] ?? track['Channels'] ?? '').toString();
