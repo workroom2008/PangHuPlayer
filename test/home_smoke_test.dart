@@ -20,11 +20,6 @@ void main() {
     final errors = <FlutterErrorDetails>[];
     final oldOnError = FlutterError.onError;
     FlutterError.onError = (details) {
-      // DispersionGlass 自定义 shader 在测试软渲染器下的已知噪音（引擎级，非应用 bug）
-      if (details.exceptionAsString().contains('Sampler index out of bounds')) {
-        debugPrint('[test] 忽略 shader 测试环境噪音');
-        return;
-      }
       errors.add(details);
       // 吞掉，继续跑，收集所有异常
     };

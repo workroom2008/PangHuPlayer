@@ -79,5 +79,3 @@ flutter:
   assets:
     - assets/images/
     - assets/animations/
-  shaders:
-    - shaders/nav_glass.frag

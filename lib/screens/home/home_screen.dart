@@ -1,8 +1,6 @@
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
-import 'dart:math';
-import 'dart:typed_data';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -17,7 +15,6 @@ import '../../services/media_server_service.dart';
 import '../../utils/screen_adapter.dart';
 import '../../utils/animation_config.dart';
 import '../../widgets/animated_card.dart';
-import '../../widgets/dispersion_glass.dart';
 import '../../widgets/hero_flight.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/home_hero_carousel.dart';
@@ -36,86 +33,82 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStateMixin {
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with TickerProviderStateMixin {
   int _currentIndex = 0;
   late PageController _pageController;
   bool _isNavVisible = true;
-  Timer? _hideTimer;
-  Timer? _tabSwitchTimer;
-  Timer? _interactionDebounceTimer;
-  bool _isSwitchingTab = false;
   // 导航栏显示/隐藏动画（单 controller，slide+opacity 严格同步）
   late final AnimationController _navAnim;
-  // 导航栏 shader 背景截取的 RepaintBoundary key
-  final GlobalKey _pageViewKey = GlobalKey();
-  // 导航栏内容行（_LiquidPill 用它算胶囊全局位置）
-  final GlobalKey _trackKey = GlobalKey();
-  // 液态玻璃胶囊的 DispersionGlass 状态 key
-  final GlobalKey<DispersionGlassState> _pillGlassKey = GlobalKey();
 
   /// Apple 强 ease-out：UI 过渡默认曲线（Cubic(0.23, 1, 0.32, 1)）
   static const Curve _easeOut = Cubic(0.23, 1.0, 0.32, 1.0);
-  static const Duration _navShowDur = Duration(milliseconds: 240);
-  static const Duration _navHideDur = Duration(milliseconds: 140);
+  static const Duration _navShowDur = Duration(milliseconds: 200);
+  static const Duration _navHideDur = Duration(milliseconds: 160);
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
-    _navAnim = AnimationController(vsync: this, value: 1.0, duration: _navShowDur);
+    _navAnim =
+        AnimationController(vsync: this, value: 1.0, duration: _navShowDur);
   }
 
   @override
   void dispose() {
-    _hideTimer?.cancel();
-    _tabSwitchTimer?.cancel();
-    _interactionDebounceTimer?.cancel();
     _pageController.dispose();
     _navAnim.dispose();
     super.dispose();
   }
 
-  void _onUserInteraction() {
-    if (!_isNavVisible) {
+  /// 滚动感知显隐：下滑隐藏、上滑唤出、回顶强制显示（Safari 式）。
+  /// 监听 PageView 内各页列表的纵向滚动（depth>=1）；PageView 自身的横向翻页
+  /// 由 axis != vertical 排除（它的 depth 是 0）。
+  bool _handleScrollNotification(ScrollNotification n) {
+    if (n is! ScrollUpdateNotification) return false;
+    if (n.metrics.axis != Axis.vertical) return false;
+    final delta = n.scrollDelta ?? 0.0;
+    final pixels = n.metrics.pixels;
+    if (delta > 4 && pixels > 80) {
+      _setNavVisible(false);
+    } else if (delta < -4) {
       _setNavVisible(true);
-      if (mounted) setState(() {});
+    } else if (pixels < 8) {
+      _setNavVisible(true);
     }
-    _resetHideTimer();
+    return false;
   }
 
   void _setNavVisible(bool visible) {
+    if (visible == _isNavVisible) return;
     _isNavVisible = visible;
-    if (visible) {
-      _navAnim.duration = _navShowDur;
-      _navAnim.animateTo(1.0, curve: _easeOut);
+    final disableAnim = MediaQuery.disableAnimationsOf(context);
+    if (disableAnim) {
+      // reduced-motion：直接跳到目标，不做动画
+      _navAnim.value = visible ? 1.0 : 0.0;
     } else {
-      _navAnim.duration = _navHideDur;
-      _navAnim.animateTo(0.0, curve: _easeOut);
+      _navAnim.animateTo(
+        visible ? 1.0 : 0.0,
+        duration: visible ? _navShowDur : _navHideDur,
+        curve: _easeOut,
+      );
     }
-  }
-
-  void _resetHideTimer() {
-    _hideTimer?.cancel();
-    if (_isSwitchingTab) return;
-    _hideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && _isNavVisible && !_isSwitchingTab) {
-        _setNavVisible(false);
-        if (mounted) setState(() {});
-      }
-    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: GestureDetector(
-        onTap: _onUserInteraction,
-        onPanDown: (_) => _onUserInteraction(),
-        behavior: HitTestBehavior.translucent,
-        child: Stack(
-          children: [
-            RepaintBoundary(
-              key: _pageViewKey,
+        body: GestureDetector(
+      onTap: () {
+        // 内容被点按时唤出导航栏（滚动感知的主通道是 ScrollNotification）
+        if (!_isNavVisible) _setNavVisible(true);
+      },
+      behavior: HitTestBehavior.translucent,
+      child: Stack(
+        children: [
+          NotificationListener<ScrollNotification>(
+            onNotification: _handleScrollNotification,
+            child: RepaintBoundary(
               child: PageView(
                 controller: _pageController,
                 onPageChanged: (index) {
@@ -123,8 +116,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                   if (_currentIndex != index) {
                     setState(() => _currentIndex = index);
                   }
-                  // 切 tab 后立即刷新玻璃背景（不等 350ms 定时器）
-                  _pillGlassKey.currentState?.refresh();
                 },
                 children: [
                   LibraryPage(onGoToResources: () => _navigateTo(2)),
@@ -134,9 +125,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                 ],
               ),
             ),
+          ),
           // 导航栏浮在内容上�?�?BackdropFilter 可模糊到轮播背景
           Positioned(
-            left: 0, right: 0, bottom: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
             child: _buildBottomNav(),
           ),
         ],
@@ -145,8 +139,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   }
 
   Widget _buildBottomNav() {
-    // 单 AnimationController 驱动 slide + opacity，严格同步。
-    // 不对称时长：显示 240ms / 隐藏 140ms，双向均为 ease-out（UI 绝不使用 ease-in）。
+    // 滚动显隐由 _navAnim 驱动（slide + opacity 严格同步），
+    // 玻璃条/胶囊/条目的弹簧物理由 _NavBar 自管。
     return AnimatedBuilder(
       animation: _navAnim,
       builder: (context, child) {
@@ -156,204 +150,453 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
           child: Opacity(
             opacity: t,
             child: FractionalTranslation(
-              translation: Offset(0, (1.0 - t) * 1.4),
+              translation: Offset(0, (1.0 - t) * 1.2),
               child: child,
             ),
           ),
         );
       },
       child: Padding(
-        // 贴地（bottom+2）、侧边距 14
-        padding: EdgeInsets.fromLTRB(14, 0, 14, MediaQuery.of(context).padding.bottom + 2),
-        child: SizedBox(
-          key: _trackKey,
-          height: 56, // 升级到 iOS 26 Liquid 标准高度（触控热区更宽裕）
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final itemWidth = constraints.maxWidth / 4;
-              return Stack(
-                clipBehavior: Clip.none,
-                fit: StackFit.expand,
-                children: [
-                  // ▌A-7 整排浅玻璃背景：非选中区也有玻璃感（与胶囊玻璃风格一致）
-                  ClipPath.shape(
-                    shape: const SquircleBorder(radius: 26),
-                    child: DispersionGlass(
-                      backdropKey: _pageViewKey,
-                      radius: 26,
-                      active: _isNavVisible,
-                      tint: context.isDark ? const Color(0xFF141414) : Colors.white,
-                      tintAlpha: context.isDark ? 0.18 : 0.30,
-                      blur: 0.7,
-                      dispersion: 0.6,
-                      edgeGlow: 0.2,
-                      saturation: 1.05,
-                      // 浅玻璃边框：一条极薄的 10% 白线，增加材质边界感
-                      child: Container(
-                        decoration: ShapeDecoration(
-                          shape: SquircleBorder(
-                            radius: 26,
-                            side: BorderSide(
-                              color: context.isDark
-                                  ? const Color(0x1AFFFFFF)
-                                  : const Color(0x14000000),
-                              width: 0.5,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 1, height: 1),
-                  // 液态玻璃胶囊指示器：水平位移，Spring 可中断
-                  _LiquidPill(
-                    trackKey: _trackKey,
-                    backdropKey: _pageViewKey,
-                    glassKey: _pillGlassKey,
-                    index: _currentIndex,
-                    itemWidth: itemWidth,
-                    height: 56,
-                    active: _isNavVisible,
-                    tint: context.isDark ? const Color(0xFF141414) : Colors.white,
-                    tintAlpha: context.isDark ? 0.38 : 0.55,
-                  ),
-                  // 4 个 Tab 行（图标位置完全固定，只有选中态颜色/字重变化）
-                  Row(children: [
-                    _NavPill(icon: Icons.home_rounded, label: '媒体', selected: _currentIndex == 0, onTap: () { _navigateTo(0); }),
-                    _NavPill(icon: Icons.explore_rounded, label: '发现', selected: _currentIndex == 1, onTap: () { _navigateTo(1); }),
-                    _NavPill(icon: Icons.dns_rounded, label: '资源', selected: _currentIndex == 2, onTap: () { _navigateTo(2); }),
-                    _NavPill(icon: Icons.settings_rounded, label: '设置', selected: _currentIndex == 3, onTap: () { _navigateTo(3); }),
-                  ]),
-                ],
-              );
-            },
-          ),
+        // 悬浮：底部安全区 + 16
+        padding: EdgeInsets.fromLTRB(
+            16, 0, 16, MediaQuery.paddingOf(context).bottom + 16),
+        child: _NavBar(
+          currentIndex: _currentIndex,
+          disableAnim: MediaQuery.disableAnimationsOf(context),
+          onSelect: _navigateTo,
         ),
       ),
     );
   }
 
-
-
   void _navigateTo(int index) {
-    // A-8: Haptic + reduced-motion gating
+    // A-8: Haptic + reduced-motion gating（胶囊滑动由 _NavBar didUpdateWidget 驱动）
     final disableAnim = MediaQuery.disableAnimationsOf(context);
     if (index != _currentIndex) {
       unawaited(HapticFeedback.selectionClick());
-      _hideTimer?.cancel();
-      _tabSwitchTimer?.cancel();
-      setState(() {
-        _setNavVisible(true);
-        _isSwitchingTab = true;
-        _currentIndex = index;
-      });
+      setState(() => _currentIndex = index);
       if (!disableAnim) {
         _pageController.animateToPage(
           index,
           duration: AppAnimations.medium,
           curve: AppAnimations.easeInOut,
         );
-        _tabSwitchTimer = Timer(const Duration(milliseconds: 330), () {
-          if (!mounted) return;
-          setState(() => _isSwitchingTab = false);
-          _resetHideTimer();
-        });
       } else {
-        // reduced-motion：直接跳到目标页，不做动画
+        // reduced-motion：直接跳到目标页
         _pageController.jumpToPage(index);
-        setState(() => _isSwitchingTab = false);
-        _resetHideTimer();
       }
-    } else {
-      _resetHideTimer();
     }
-    _pillGlassKey.currentState?.refresh();
   }
 }
 
+/// 导航栏响应式尺寸（Streama/Miuix 同款断点：600dp / 840dp）。
+/// 紧凑：56 胶囊/64 条；中等：60/68；展开：64/72，图标同步放大。
+({double barH, double pillH, double tabW, double iconS, double labelS})
+    _navSizes(BuildContext context) {
+  final w = MediaQuery.sizeOf(context).width;
+  if (w >= 840) return (barH: 72, pillH: 64, tabW: 96, iconS: 28, labelS: 13);
+  if (w >= 600) return (barH: 68, pillH: 60, tabW: 88, iconS: 26, labelS: 12);
+  return (barH: 64, pillH: 56, tabW: 80, iconS: 24, labelS: 11);
+}
+
+/// 液态玻璃导航栏：内容宽度居中悬浮条 + 弹簧滑动胶囊 + 按压缩放/拖拽磁吸。
+///
+/// 手势（点按/横向拖动）由本组件自行消费；滚动显隐由外层 _HomeScreenState
+/// 通过 _navAnim 驱动，本组件不感知滚动。
+class _NavBar extends StatefulWidget {
+  final int currentIndex;
+  final bool disableAnim;
+  final ValueChanged<int> onSelect;
+
+  const _NavBar({
+    required this.currentIndex,
+    required this.disableAnim,
+    required this.onSelect,
+  });
+
+  @override
+  State<_NavBar> createState() => _NavBarState();
+}
+
+class _NavBarState extends State<_NavBar> with TickerProviderStateMixin {
+  /// Apple 风格 Spring（与旧版胶囊同参数，可中断）
+  static const SpringDescription _spring =
+      SpringDescription(mass: 0.5, stiffness: 260, damping: 26);
+
+  /// Miuix LiquidGlass 示例的按压缩放（pressedScale = 78/56 ≈ 1.39）
+  static const double _pressScale = 1.39;
+
+  /// 点击脉冲：放大 160ms → easeOutBack 缩回 260ms，一次完整的放大缩小
+  static const Duration _pulseIn = Duration(milliseconds: 160);
+  static const Duration _pulseOut = Duration(milliseconds: 260);
+
+  late final AnimationController _posCtrl; // 胶囊左偏移（0..(n-1)*tabW）
+  late final AnimationController _scaleCtrl; // 0..1 按压缩放进度
+  SpringSimulation? _sim;
+  double _tabW = 0;
+  int? _pressedIndex;
+  double _stretchX = 1, _stretchY = 1; // 拖拽速度拉伸
+
+  @override
+  void initState() {
+    super.initState();
+    _posCtrl = AnimationController(
+      vsync: this,
+      lowerBound: double.negativeInfinity,
+      upperBound: double.infinity,
+    );
+    _scaleCtrl = AnimationController(vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _posCtrl.dispose();
+    _scaleCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant _NavBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.currentIndex != oldWidget.currentIndex && _tabW > 0) {
+      // 弹簧滑动到新 tab（可中断：拖拽/再次切换会重置 sim）
+      _springTo(widget.currentIndex * _tabW);
+    }
+  }
+
+  void _springTo(double target) {
+    if (widget.disableAnim) {
+      _sim = null;
+      _posCtrl.value = target;
+      return;
+    }
+    final from = _posCtrl.value.isFinite ? _posCtrl.value : 0.0;
+    final velocity = _sim == null ? 0.0 : _posCtrl.velocity;
+    _sim = SpringSimulation(_spring, from, target, velocity);
+    _posCtrl.animateWith(_sim!);
+  }
+
+  /// 尺寸随断点变化时直接归位，不播放滑动
+  void _syncSize(double tabW) {
+    if (_tabW == tabW) return;
+    _tabW = tabW;
+    _posCtrl.value = widget.currentIndex * tabW;
+    _sim = null;
+  }
+
+  int _indexAt(double localX) => (((localX - 4) / _tabW).floor()).clamp(0, 3);
+
+  /// 点击脉冲：按下播放一次 0→1 放大（160ms），播完自动 1→0 缩小（260ms easeOutBack）。
+  /// 动画与手指状态解耦——即使手指停在屏幕上，脉冲也会完整播放一次。
+  void _pressStart(double localX) {
+    final idx = _indexAt(localX);
+    setState(() => _pressedIndex = idx);
+    if (widget.disableAnim) {
+      _scaleCtrl.value = 0.0;
+      _pressedIndex = null;
+    } else {
+      // 中断上一轮未播完的脉冲（其 whenComplete 不会再动新动画）
+      _scaleCtrl.stop();
+      final pulse = _scaleCtrl.animateTo(1.0,
+          duration: _pulseIn, curve: AppAnimations.easeOut);
+      unawaited(pulse.whenComplete(() {
+        if (mounted) {
+          _scaleCtrl.animateTo(0.0,
+              duration: _pulseOut, curve: Curves.easeOutBack);
+        }
+      }));
+    }
+    // 按下即吸附到该 tab（Miuix 示例行为）
+    _springTo(idx * _tabW);
+  }
+
+  void _pressEnd() {
+    // 只复位触控状态；缩放脉冲由 _scaleCtrl 自动播完（放大→缩小），不在此打断
+    setState(() {
+      _pressedIndex = null;
+      _stretchX = 1;
+      _stretchY = 1;
+    });
+  }
+
+  void _dragUpdate(double deltaX) {
+    _posCtrl.stop();
+    _sim = null;
+    final maxX = _tabW * 3;
+    _posCtrl.value = (_posCtrl.value + deltaX).clamp(0.0, maxX);
+    // 速度拉伸：按拖拽增量近似速度（scaleX = 1/(1-v)，纵向反向压缩）
+    final s = (deltaX * 0.03).clamp(-0.18, 0.18);
+    setState(() {
+      _stretchX = 1 / (1 - s);
+      _stretchY = 1 - s.abs() * 0.4;
+    });
+  }
+
+  void _dragEnd() {
+    _pressEnd();
+    final idx = ((_posCtrl.value / _tabW).round()).clamp(0, 3);
+    if (idx != widget.currentIndex) widget.onSelect(idx);
+    _springTo(idx * _tabW);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sizes = _navSizes(context);
+    final tabW = sizes.tabW;
+    _syncSize(tabW);
+    final barW = tabW * 4 + 8;
+    final pillH = sizes.pillH;
+    final radius = pillH / 2;
+    final isDark = context.isDark;
+
+    return Center(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (d) => _pressStart(d.localPosition.dx),
+        onTapUp: (d) {
+          _pressEnd();
+          final idx = _indexAt(d.localPosition.dx);
+          if (idx != widget.currentIndex) widget.onSelect(idx);
+        },
+        onTapCancel: _pressEnd,
+        onHorizontalDragStart: (d) => _pressStart(d.localPosition.dx),
+        onHorizontalDragUpdate: (d) => _dragUpdate(d.delta.dx),
+        onHorizontalDragEnd: (_) => _dragEnd(),
+        onHorizontalDragCancel: _pressEnd,
+        child: SizedBox(
+          width: barW,
+          height: sizes.barH,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              _buildBar(radius, isDark),
+              _buildPill(tabW, pillH, radius, isDark),
+              _buildTabs(sizes, tabW, pillH),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 悬浮磨砂条：BackdropFilter 模糊 + 表面色 + 细边框 + 投影
+  Widget _buildBar(double radius, bool isDark) {
+    return Positioned.fill(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0x8C141414) : const Color(0x8CFFFFFF),
+              border: Border.all(
+                color:
+                    isDark ? const Color(0x26FFFFFF) : const Color(0x1F000000),
+                width: 0.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.30),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 滑动玻璃胶囊：弹簧位置 + 按压缩放 + 速度拉伸
+  Widget _buildPill(double tabW, double pillH, double radius, bool isDark) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([_posCtrl, _scaleCtrl]),
+      builder: (context, _) {
+        final press = 1.0 + (_pressScale - 1.0) * _scaleCtrl.value;
+        final sx = press * _stretchX;
+        final sy = press * _stretchY;
+        return Positioned(
+          left: 4,
+          top: 4,
+          width: tabW,
+          height: pillH,
+          child: Transform.translate(
+            offset: Offset(_posCtrl.value, 0),
+            child: Transform.scale(
+              scaleX: sx,
+              scaleY: sy,
+              alignment: Alignment.center,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(radius),
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: isDark
+                          ? const [Color(0x55FFFFFF), Color(0x22FFFFFF)]
+                          : const [Color(0xD9FFFFFF), Color(0x8CFFFFFF)],
+                    ),
+                    border: Border.all(
+                      color: isDark
+                          ? const Color(0x80FFFFFF)
+                          : const Color(0xE6FFFFFF),
+                      width: 1,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.28),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                      // 顶部内高光（液态玻璃 specular 带）
+                      const BoxShadow(
+                        color: Color(0x33FFFFFF),
+                        blurRadius: 1,
+                        offset: Offset(0, -1),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTabs(
+      ({
+        double barH,
+        double pillH,
+        double tabW,
+        double iconS,
+        double labelS
+      }) sizes,
+      double tabW,
+      double pillH) {
+    return Row(
+      children: [
+        _NavPill(
+          icon: Icons.home_rounded,
+          label: '媒体',
+          selected: widget.currentIndex == 0,
+          pressed: _pressedIndex == 0,
+          width: tabW,
+          height: pillH,
+          iconSize: sizes.iconS,
+          labelSize: sizes.labelS,
+        ),
+        _NavPill(
+          icon: Icons.explore_rounded,
+          label: '发现',
+          selected: widget.currentIndex == 1,
+          pressed: _pressedIndex == 1,
+          width: tabW,
+          height: pillH,
+          iconSize: sizes.iconS,
+          labelSize: sizes.labelS,
+        ),
+        _NavPill(
+          icon: Icons.dns_rounded,
+          label: '资源',
+          selected: widget.currentIndex == 2,
+          pressed: _pressedIndex == 2,
+          width: tabW,
+          height: pillH,
+          iconSize: sizes.iconS,
+          labelSize: sizes.labelS,
+        ),
+        _NavPill(
+          icon: Icons.settings_rounded,
+          label: '设置',
+          selected: widget.currentIndex == 3,
+          pressed: _pressedIndex == 3,
+          width: tabW,
+          height: pillH,
+          iconSize: sizes.iconS,
+          labelSize: sizes.labelS,
+        ),
+      ],
+    );
+  }
+}
+
+/// 单个导航条目：选中态颜色/字重插值 + 按压缩放（图标 1.2 / 文字 1.08）。
+/// 手势由外层 _NavBar 统一消费，本组件纯展示。
 class _NavPill extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool selected;
-  final VoidCallback onTap;
+  final bool pressed;
+  final double width;
+  final double height;
+  final double iconSize;
+  final double labelSize;
 
-  const _NavPill({required this.icon, required this.label, required this.selected, required this.onTap});
+  const _NavPill({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.pressed,
+    required this.width,
+    required this.height,
+    required this.iconSize,
+    required this.labelSize,
+  });
 
   @override
   Widget build(BuildContext context) {
-    // 数十次/天频率门：只动颜色 + 字重 + 极轻 scale，不做夸张形变。
-    // 颜色/字重/阴影用 Tween 平滑过渡；图标字号完全不变，保证文字不位移。
-    // reduced-motion：时长置 0，TweenAnimationBuilder 直接进入终点，无动画。
     final disableAnim = MediaQuery.disableAnimationsOf(context);
-    final pillDuration = disableAnim ? Duration.zero : AppAnimations.navPill;
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          height: double.infinity,
-          decoration: const BoxDecoration(color: Colors.transparent),
-          child: TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0.0, end: selected ? 1.0 : 0.0),
-            duration: pillDuration,
-            curve: const Cubic(0.23, 1.0, 0.32, 1.0),
-            builder: (context, t, _) {
-              // 选中：主色（亮紫/红主题）；未选中：textPrimary 60%（沉浸感）
-              final selectedColor = AppTheme.primary;
-              final unselectedColor = context.textPrimary.withValues(alpha: 0.6);
-              final color = Color.lerp(unselectedColor, selectedColor, t)!;
-              // 极轻形变（1.08 vs 旧版 1.18），数十次/天不做过冲变形
-              final iconScale = 1.0 + 0.08 * t;
-              // 阴影选中后淡出：选中时被玻璃胶囊覆盖，投影反而压暗。
-              // 未选中仅保留极轻投影保证玻璃上可读性——原 55% 黑 + 6px 模糊
-              // 叠加玻璃模糊后小字号（12px）发糊，降到 25% + 2px。
-              final shadowAlpha = (1.0 - t) * 0.25;
-              final shadow = Shadow(
-                color: Colors.black.withValues(alpha: shadowAlpha),
-                blurRadius: 2,
-                offset: const Offset(0, 1),
-              );
-              // 字重插值：未选中 w500 → 选中 w700（iOS Tab 同款处理，比字号放大高级）
-              final fontWeight = FontWeight.lerp(FontWeight.w500, FontWeight.w700, t);
-              return Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: 30,
-                    height: 30,
-                    child: Center(
-                      child: Transform.scale(
-                        scale: iconScale,
-                        child: Icon(
-                          icon,
-                          color: color,
-                          size: 22,        // 字号固定，不再 21→22 位移
-                          shadows: [shadow],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  SizedBox(
-                    width: 32,
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.clip,
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 12,   // 字号固定
-                        fontWeight: fontWeight,
-                        shadows: [shadow],
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
+    final dur = disableAnim ? Duration.zero : AppAnimations.navPill;
+    final pressDur =
+        disableAnim ? Duration.zero : const Duration(milliseconds: 140);
+    const selectedColor = AppTheme.primary;
+    final unselectedColor = context.textPrimary.withValues(alpha: 0.6);
+
+    return SizedBox(
+      width: width,
+      height: height,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          AnimatedScale(
+            scale: pressed ? 1.2 : 1.0,
+            duration: pressDur,
+            curve: AppAnimations.easeOut,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.0, end: selected ? 1.0 : 0.0),
+              duration: dur,
+              curve: AppAnimations.easeOut,
+              builder: (context, t, _) => Icon(
+                icon,
+                size: iconSize,
+                color: Color.lerp(unselectedColor, selectedColor, t),
+              ),
+            ),
           ),
-        ),
+          AnimatedScale(
+            scale: pressed ? 1.08 : 1.0,
+            duration: pressDur,
+            curve: AppAnimations.easeOut,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.0, end: selected ? 1.0 : 0.0),
+              duration: dur,
+              curve: AppAnimations.easeOut,
+              builder: (context, t, _) => Text(
+                label,
+                style: TextStyle(
+                  fontSize: labelSize,
+                  color: Color.lerp(unselectedColor, selectedColor, t),
+                  fontWeight:
+                      FontWeight.lerp(FontWeight.w500, FontWeight.w700, t),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -369,7 +612,8 @@ class LibraryPage extends ConsumerStatefulWidget {
   ConsumerState<LibraryPage> createState() => _LibraryPageState();
 }
 
-class _LibraryPageState extends ConsumerState<LibraryPage> with AutomaticKeepAliveClientMixin {
+class _LibraryPageState extends ConsumerState<LibraryPage>
+    with AutomaticKeepAliveClientMixin {
   final ValueNotifier<int> _bgIndex = ValueNotifier<int>(0);
   // 使用 ValueNotifier 避免颜色变化时整页 setState 重建（每6秒轮播切换会触发）
   final ValueNotifier<Color?> _carouselColor = ValueNotifier<Color?>(null);
@@ -401,7 +645,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> with AutomaticKeepAli
   Widget build(BuildContext context) {
     super.build(context);
     final servers = ref.watch(mediaServersProvider);
-    final defaultServer = servers.where((s) => s.isDefault).firstOrNull ?? servers.firstOrNull;
+    final defaultServer =
+        servers.where((s) => s.isDefault).firstOrNull ?? servers.firstOrNull;
     final mediaLibraryState = ref.watch(mediaLibraryProvider);
     final size = MediaQuery.sizeOf(context);
     final carouselItems = mediaLibraryState.carouselItems;
@@ -466,7 +711,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> with AutomaticKeepAli
             left: 0,
             right: 0,
             child: Container(
-              padding: EdgeInsets.fromLTRB(16, MediaQuery.paddingOf(context).top + 8, 16, 16),
+              padding: EdgeInsets.fromLTRB(
+                  16, MediaQuery.paddingOf(context).top + 8, 16, 16),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
@@ -497,7 +743,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> with AutomaticKeepAli
                         color: Colors.black.withValues(alpha: 0.35),
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(Icons.search, color: context.textPrimary, size: 22),
+                      child: Icon(Icons.search,
+                          color: context.textPrimary, size: 22),
                     ),
                   ),
                 ],
@@ -513,7 +760,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> with AutomaticKeepAli
     final svc = ref.watch(currentMediaServerServiceProvider);
     final headers = svc?.imageHeaders;
     if (items.isEmpty) {
-      return SizedBox(height: size.height * 0.65, child: Container(color: context.bgColor));
+      return SizedBox(
+          height: size.height * 0.65, child: Container(color: context.bgColor));
     }
     return SizedBox(
       height: size.height * 0.65,
@@ -584,7 +832,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> with AutomaticKeepAli
   }
 
   void _openCarouselItem(BuildContext context, MediaItem item) {
-    final server = ref.read(mediaServersProvider).where((s) => s.isDefault).firstOrNull;
+    final server =
+        ref.read(mediaServersProvider).where((s) => s.isDefault).firstOrNull;
     context.push('/detail/${item.id}', extra: {'item': item, 'server': server});
   }
 }
@@ -593,10 +842,12 @@ class _MediaLibraryContent extends ConsumerStatefulWidget {
   const _MediaLibraryContent();
 
   @override
-  ConsumerState<_MediaLibraryContent> createState() => _MediaLibraryContentState();
+  ConsumerState<_MediaLibraryContent> createState() =>
+      _MediaLibraryContentState();
 }
 
-class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with AutomaticKeepAliveClientMixin {
+class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent>
+    with AutomaticKeepAliveClientMixin {
   bool _hasAnimated = false;
   bool _categoriesExpanded = false;
   static const int _maxVisibleCategories = 3;
@@ -611,10 +862,11 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
 
   void _openLibrary(MediaItem library) {
     final servers = ref.read(mediaServersProvider);
-    final defaultServer = servers.where((s) => s.isDefault).firstOrNull ?? servers.firstOrNull;
+    final defaultServer =
+        servers.where((s) => s.isDefault).firstOrNull ?? servers.firstOrNull;
     final service = ref.read(currentMediaServerServiceProvider);
     if (defaultServer == null || service == null) return;
-    
+
     Navigator.push(
       context,
       PageRouteBuilder(
@@ -646,7 +898,8 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
     // 合集（BoxSet）：点击后展示合集内的影视列表，而不是合集详情页
     if (item.isBoxSet) {
       final servers = ref.read(mediaServersProvider);
-      final server = servers.where((s) => s.isDefault).firstOrNull ?? servers.firstOrNull;
+      final server =
+          servers.where((s) => s.isDefault).firstOrNull ?? servers.firstOrNull;
       final service = ref.read(currentMediaServerServiceProvider);
       if (server == null || service == null) return;
       Navigator.push(
@@ -681,19 +934,19 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
   Widget build(BuildContext context) {
     super.build(context);
     final mediaState = ref.watch(mediaLibraryProvider);
-    
+
     if (!mediaState.hasLoaded && mediaState.isLoading) {
       return _buildLoadingState();
     }
-    
+
     if (mediaState.errorMessage != null && mediaState.libraries.isEmpty) {
       return _buildErrorState();
     }
-    
+
     if (mediaState.libraries.isEmpty) {
       return _buildEmptyState();
     }
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -724,7 +977,8 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
     return FutureBuilder<List<MediaItem>>(
       future: _resumeFuture,
       builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.data!.isEmpty) return const SizedBox.shrink();
+        if (!snapshot.hasData || snapshot.data!.isEmpty)
+          return const SizedBox.shrink();
         final items = snapshot.data!;
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -734,11 +988,16 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
               SizedBox(height: 8),
               Row(
                 children: [
-                  Text('继续观看', style: TextStyle(color: context.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text('继续观看',
+                      style: TextStyle(
+                          color: context.textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold)),
                   const Spacer(),
                   GestureDetector(
                     onTap: _refreshResumeItems,
-                    child: Icon(Icons.refresh_rounded, color: context.textSecondary, size: 18),
+                    child: Icon(Icons.refresh_rounded,
+                        color: context.textSecondary, size: 18),
                   ),
                 ],
               ),
@@ -753,7 +1012,10 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
                     return _ContinueWatchingCard(
                       item: item,
                       onTap: () => _openResumeItem(item),
-                    ).animate().fadeIn(delay: Duration(milliseconds: 50 * index)).slideX(begin: 0.1, end: 0);
+                    )
+                        .animate()
+                        .fadeIn(delay: Duration(milliseconds: 50 * index))
+                        .slideX(begin: 0.1, end: 0);
                   },
                 ),
               ),
@@ -766,7 +1028,8 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
   }
 
   void _openResumeItem(MediaItem item) {
-    final server = ref.read(mediaServersProvider).where((s) => s.isDefault).firstOrNull;
+    final server =
+        ref.read(mediaServersProvider).where((s) => s.isDefault).firstOrNull;
     final svc = ref.read(currentMediaServerServiceProvider);
     // 如果继续观看的是剧集，跳转到系列详情页并标记选中该集
     if (item.type == MediaType.episode && item.seriesId != null) {
@@ -857,7 +1120,8 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
             Text('加载媒体库失败', style: TextStyle(color: context.textPrimary)),
             SizedBox(height: 12),
             TextButton(
-              onPressed: () => ref.read(mediaLibraryProvider.notifier).refresh(),
+              onPressed: () =>
+                  ref.read(mediaLibraryProvider.notifier).refresh(),
               child: Text('重试', style: TextStyle(color: AppTheme.primary)),
             ),
           ],
@@ -875,7 +1139,8 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
     );
   }
 
-  Widget _buildCategories(List<MediaItem> libraries, Map<String, List<MediaItem>> libraryItems) {
+  Widget _buildCategories(
+      List<MediaItem> libraries, Map<String, List<MediaItem>> libraryItems) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !_hasAnimated) _hasAnimated = true;
     });
@@ -898,7 +1163,8 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: GestureDetector(
-              onTap: () => setState(() => _categoriesExpanded = !_categoriesExpanded),
+              onTap: () =>
+                  setState(() => _categoriesExpanded = !_categoriesExpanded),
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
@@ -909,7 +1175,9 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      _categoriesExpanded ? '收起' : '展开全部 ${libraries.length} 个媒体库',
+                      _categoriesExpanded
+                          ? '收起'
+                          : '展开全部 ${libraries.length} 个媒体库',
                       style: TextStyle(
                         color: AppTheme.primary,
                         fontSize: 13,
@@ -918,7 +1186,9 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
                     ),
                     const SizedBox(width: 4),
                     Icon(
-                      _categoriesExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                      _categoriesExpanded
+                          ? Icons.keyboard_arrow_up_rounded
+                          : Icons.keyboard_arrow_down_rounded,
                       color: AppTheme.primary,
                       size: 18,
                     ),
@@ -931,7 +1201,8 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
     );
   }
 
-  Widget _buildCategorySection(MediaItem library, List<MediaItem> items, int index) {
+  Widget _buildCategorySection(
+      MediaItem library, List<MediaItem> items, int index) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
@@ -964,7 +1235,7 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: AppTheme.primary.withValues(alpha:0.2),
+              color: AppTheme.primary.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(10),
             ),
             child: ClipRRect(
@@ -973,15 +1244,22 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
                 imageUrl: library.posterUrl,
                 headers: headers,
                 fit: BoxFit.cover,
-                errorWidget: (_, __, ___) => Icon(Icons.video_library, color: context.textPrimary),
+                errorWidget: (_, __, ___) =>
+                    Icon(Icons.video_library, color: context.textPrimary),
               ),
             ),
           ),
           SizedBox(width: 12),
           Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(library.title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: context.textPrimary)),
-              Text('查看全部', style: TextStyle(fontSize: 12, color: context.textSecondary)),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(library.title,
+                  style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: context.textPrimary)),
+              Text('查看全部',
+                  style: TextStyle(fontSize: 12, color: context.textSecondary)),
             ]),
           ),
           Icon(Icons.chevron_right_rounded, color: context.textSecondary),
@@ -990,7 +1268,8 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
     );
   }
 
-  Widget _buildCategoryItems(List<MediaItem> items, MediaItem library, int categoryIndex) {
+  Widget _buildCategoryItems(
+      List<MediaItem> items, MediaItem library, int categoryIndex) {
     return SizedBox(
       height: 220,
       child: ListView.builder(
@@ -1001,7 +1280,9 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent> with
           return _MediaItemCard(
             item: item,
             onTap: () => _openItemDetail(item),
-          ).animate(target: _hasAnimated ? 1.0 : null).fadeIn(delay: Duration(milliseconds: 30 * index));
+          )
+              .animate(target: _hasAnimated ? 1.0 : null)
+              .fadeIn(delay: Duration(milliseconds: 30 * index));
         },
       ),
     );
@@ -1072,64 +1353,90 @@ class _ContinueWatchingCard extends StatelessWidget {
                             fit: BoxFit.cover,
                             memCacheWidth: 500,
                             errorWidget: (_, __, ___) => Container(
-                              color: context.textPrimary.withValues(alpha: 0.05),
-                              child: Icon(Icons.movie, color: context.textPrimary.withValues(alpha: 0.3), size: 36),
+                              color:
+                                  context.textPrimary.withValues(alpha: 0.05),
+                              child: Icon(Icons.movie,
+                                  color: context.textPrimary
+                                      .withValues(alpha: 0.3),
+                                  size: 36),
                             ),
                           )
                         : Container(
                             color: context.textPrimary.withValues(alpha: 0.05),
-                            child: Icon(Icons.movie, color: context.textPrimary.withValues(alpha: 0.3), size: 36),
+                            child: Icon(Icons.movie,
+                                color:
+                                    context.textPrimary.withValues(alpha: 0.3),
+                                size: 36),
                           ),
                     // 底部渐变遮罩（让进度条和剩余时间更清晰）
                     Positioned(
-                      left: 0, right: 0, bottom: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
                       child: Container(
                         height: 40,
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
-                            colors: [Colors.transparent, Colors.black.withValues(alpha: 0.7)],
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withValues(alpha: 0.7)
+                            ],
                           ),
                         ),
                       ),
                     ),
                     // 集数标签（左上角）
-                    if (item.type == MediaType.episode && item.seasonNumber != null && item.episodeNumber != null)
+                    if (item.type == MediaType.episode &&
+                        item.seasonNumber != null &&
+                        item.episodeNumber != null)
                       Positioned(
-                        left: 8, top: 8,
+                        left: 8,
+                        top: 8,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
                             color: Colors.black.withValues(alpha: 0.6),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
                             'S${item.seasonNumber}·E${item.episodeNumber}',
-                            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600),
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600),
                           ),
                         ),
                       ),
                     // 剩余时间标签（右下角）
                     if (remainingMin > 0)
                       Positioned(
-                        right: 8, bottom: 8,
+                        right: 8,
+                        bottom: 8,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
                             color: Colors.black.withValues(alpha: 0.6),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
                             '剩余 ${_formatDuration(remainingMin)}',
-                            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w500),
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w500),
                           ),
                         ),
                       ),
                     // 进度条（底部）
                     if (progress > 0)
                       Positioned(
-                        left: 0, right: 0, bottom: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
                         child: ClipRRect(
                           borderRadius: const BorderRadius.only(
                             bottomLeft: Radius.circular(10),
@@ -1138,20 +1445,24 @@ class _ContinueWatchingCard extends StatelessWidget {
                           child: LinearProgressIndicator(
                             value: progress,
                             minHeight: 3,
-                            backgroundColor: Colors.white.withValues(alpha: 0.2),
-                            valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primary),
+                            backgroundColor:
+                                Colors.white.withValues(alpha: 0.2),
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(AppTheme.primary),
                           ),
                         ),
                       ),
                     // 播放图标居中
                     Center(
                       child: Container(
-                        width: 40, height: 40,
+                        width: 40,
+                        height: 40,
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.4),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 24),
+                        child: const Icon(Icons.play_arrow_rounded,
+                            color: Colors.white, size: 24),
                       ),
                     ),
                   ],
@@ -1178,7 +1489,8 @@ class _ContinueWatchingCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       subtitle,
-                      style: TextStyle(color: context.textSecondary, fontSize: 11),
+                      style:
+                          TextStyle(color: context.textSecondary, fontSize: 11),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1211,7 +1523,7 @@ class _MediaItemCard extends ConsumerWidget {
     final subtitleFontSize = adapter.subtitleFontSize;
     final svc = ref.watch(currentMediaServerServiceProvider);
     final headers = svc?.imageHeaders;
-    
+
     return ScaleCard(
       onTap: onTap,
       child: Container(
@@ -1235,23 +1547,38 @@ class _MediaItemCard extends ConsumerWidget {
                     fit: BoxFit.cover,
                     width: double.infinity,
                     height: double.infinity,
-                    memCacheWidth: (cardWidth * MediaQuery.of(context).devicePixelRatio).round(),
+                    memCacheWidth:
+                        (cardWidth * MediaQuery.of(context).devicePixelRatio)
+                            .round(),
                     placeholder: (_, __) => Container(
-                      color: context.textPrimary.withValues(alpha:0.1),
-                      child: Center(child: Icon(Icons.movie, color: context.textPrimary)),
+                      color: context.textPrimary.withValues(alpha: 0.1),
+                      child: Center(
+                          child: Icon(Icons.movie, color: context.textPrimary)),
                     ),
                     errorWidget: (_, __, ___) => Container(
-                      color: context.textPrimary.withValues(alpha:0.1),
-                      child: Center(child: Icon(Icons.movie, color: context.textPrimary)),
+                      color: context.textPrimary.withValues(alpha: 0.1),
+                      child: Center(
+                          child: Icon(Icons.movie, color: context.textPrimary)),
                     ),
                   ),
                 ),
               ),
             ),
             SizedBox(height: 6),
-            Text(item.title, style: TextStyle(color: context.textPrimary, fontSize: 12, fontWeight: FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis),
+            Text(item.title,
+                style: TextStyle(
+                    color: context.textPrimary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis),
             if (item.year != null)
-              Text(item.year.toString(), style: TextStyle(color: context.textPrimary.withValues(alpha:0.6), fontSize: subtitleFontSize), maxLines: 1, overflow: TextOverflow.ellipsis),
+              Text(item.year.toString(),
+                  style: TextStyle(
+                      color: context.textPrimary.withValues(alpha: 0.6),
+                      fontSize: subtitleFontSize),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
           ],
         ),
       ),
@@ -1275,27 +1602,34 @@ class LibraryItemsScreen extends ConsumerStatefulWidget {
   ConsumerState<LibraryItemsScreen> createState() => _LibraryItemsScreenState();
 }
 
-class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with TickerProviderStateMixin {
+class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen>
+    with TickerProviderStateMixin {
   Future<List<MediaItem>>? _itemsFuture;
   late TabController _tabController;
   int _currentTab = 0;
-  
+
   Color _bgColor = const Color(0xFFE8D5C4);
   Color _textColor = Colors.black;
   bool _colorsExtracted = false;
-  
+
   String _sortBy = '加入日期';
   bool _sortDescending = true;
   bool _showSortMenu = false;
   bool _isGridView = true;
   bool _isPortraitCard = true;
-  String? _activeGenreFilter;   // 类型过滤（点击类型卡进入）
-  String? _activeFolderFilter;  // 文件夹过滤（点击文件夹卡进入）
-  
+  String? _activeGenreFilter; // 类型过滤（点击类型卡进入）
+  String? _activeFolderFilter; // 文件夹过滤（点击文件夹卡进入）
+
   List<String> get _tabs => [widget.library.title, '类型', '文件夹'];
   final List<String> _sortOptions = [
-    '加入日期', '标题', '公众评分', '影评人评分',
-    '出品年份', '首映日期', '官方评级', '播放日期'
+    '加入日期',
+    '标题',
+    '公众评分',
+    '影评人评分',
+    '出品年份',
+    '首映日期',
+    '官方评级',
+    '播放日期'
   ];
 
   @override
@@ -1315,7 +1649,8 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
       if (mounted && color != null) {
         setState(() {
           _bgColor = _lightenColor(color, 0.75);
-          _textColor = _isColorLight(_bgColor) ? Colors.black : context.textPrimary;
+          _textColor =
+              _isColorLight(_bgColor) ? Colors.black : context.textPrimary;
           _colorsExtracted = true;
         });
       }
@@ -1334,13 +1669,14 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
         const Duration(seconds: 5),
         onTimeout: () => throw 'timeout',
       );
-      final byteData = await imageInfo.image.toByteData(format: ImageByteFormat.rawRgba);
+      final byteData =
+          await imageInfo.image.toByteData(format: ImageByteFormat.rawRgba);
       if (byteData == null) return null;
-      
+
       final bytes = byteData.buffer.asUint8List();
       final pixelCount = imageInfo.image.width * imageInfo.image.height;
       final step = pixelCount ~/ 100;
-      
+
       int r = 0, g = 0, b = 0, count = 0;
       for (int i = 0; i < bytes.length; i += 4 * step) {
         if (i + 2 < bytes.length) {
@@ -1358,9 +1694,12 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
   }
 
   Color _lightenColor(Color color, double amount) {
-    final r = ((color.r * 255 + (255 - color.r * 255) * amount).round()).clamp(0, 255);
-    final g = ((color.g * 255 + (255 - color.g * 255) * amount).round()).clamp(0, 255);
-    final b = ((color.b * 255 + (255 - color.b * 255) * amount).round()).clamp(0, 255);
+    final r = ((color.r * 255 + (255 - color.r * 255) * amount).round())
+        .clamp(0, 255);
+    final g = ((color.g * 255 + (255 - color.g * 255) * amount).round())
+        .clamp(0, 255);
+    final b = ((color.b * 255 + (255 - color.b * 255) * amount).round())
+        .clamp(0, 255);
     return Color.fromRGBO(r, g, b, 1);
   }
 
@@ -1445,7 +1784,8 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
           CustomScrollView(
             slivers: [
               SliverToBoxAdapter(
-                child: SizedBox(height: MediaQuery.of(context).padding.top + 60),
+                child:
+                    SizedBox(height: MediaQuery.of(context).padding.top + 60),
               ),
               SliverToBoxAdapter(
                 child: Padding(
@@ -1522,7 +1862,8 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
               ),
             ),
             IconButton(
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SearchScreen())),
+              onPressed: () => Navigator.push(
+                  context, MaterialPageRoute(builder: (_) => SearchScreen())),
               icon: Icon(Icons.search_rounded, color: _textColor, size: 24),
             ),
             IconButton(
@@ -1554,7 +1895,8 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
         labelColor: context.textPrimary,
         unselectedLabelColor: _textColor.withValues(alpha: 0.5),
         labelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-        unselectedLabelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.normal),
+        unselectedLabelStyle:
+            const TextStyle(fontSize: 14, fontWeight: FontWeight.normal),
         tabs: _tabs.map((t) => Tab(text: t)).toList(),
       ),
     );
@@ -1576,7 +1918,9 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
       return items.where((i) => i.genres.contains(_activeGenreFilter)).toList();
     }
     if (_activeFolderFilter != null) {
-      return items.where((i) => _getParentFolderName(i.filePath) == _activeFolderFilter).toList();
+      return items
+          .where((i) => _getParentFolderName(i.filePath) == _activeFolderFilter)
+          .toList();
     }
     return items;
   }
@@ -1596,7 +1940,11 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             Icon(Icons.filter_alt_rounded, color: AppTheme.primary, size: 14),
             const SizedBox(width: 4),
-            Text(label, style: const TextStyle(color: AppTheme.primary, fontSize: 13, fontWeight: FontWeight.w600)),
+            Text(label,
+                style: const TextStyle(
+                    color: AppTheme.primary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600)),
             const SizedBox(width: 4),
             GestureDetector(
               onTap: () => setState(() {
@@ -1605,7 +1953,8 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
                 _currentTab = 0;
                 _tabController.index = 0;
               }),
-              child: const Icon(Icons.close_rounded, color: AppTheme.primary, size: 16),
+              child: const Icon(Icons.close_rounded,
+                  color: AppTheme.primary, size: 16),
             ),
           ]),
         ),
@@ -1616,7 +1965,7 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
   Widget _buildMovieGrid(List<MediaItem> items) {
     final crossAxisCount = _isPortraitCard ? 3 : 2;
     final cardAspectRatio = _isPortraitCard ? 2 / 3 : 16 / 10;
-    
+
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       sliver: SliverGrid(
@@ -1638,7 +1987,9 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
               onTap: () => _openDetail(item),
             );
             if (index < 24) {
-              card = card.animate().fadeIn(delay: Duration(milliseconds: 20 * index));
+              card = card
+                  .animate()
+                  .fadeIn(delay: Duration(milliseconds: 20 * index));
             }
             return card;
           },
@@ -1657,7 +2008,7 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
       }
     }
     final genreList = genres.entries.toList();
-    
+
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       sliver: SliverGrid(
@@ -1685,7 +2036,9 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
             );
             // 同网格：fadeIn delay 随 index 线性放大，快速滑动时只对首屏动画
             if (index < 24) {
-              card = card.animate().fadeIn(delay: Duration(milliseconds: 20 * index));
+              card = card
+                  .animate()
+                  .fadeIn(delay: Duration(milliseconds: 20 * index));
             }
             return card;
           },
@@ -1705,7 +2058,7 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
       }
     }
     final folderList = folders.entries.toList();
-    
+
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       sliver: SliverGrid(
@@ -1733,7 +2086,9 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
             );
             // 同网格：fadeIn delay 随 index 线性放大，快速滑动时只对首屏动画
             if (index < 24) {
-              card = card.animate().fadeIn(delay: Duration(milliseconds: 20 * index));
+              card = card
+                  .animate()
+                  .fadeIn(delay: Duration(milliseconds: 20 * index));
             }
             return card;
           },
@@ -1778,7 +2133,8 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             SizedBox(height: 80),
-            Icon(Icons.error_outline, color: _textColor.withValues(alpha: 0.5), size: 48),
+            Icon(Icons.error_outline,
+                color: _textColor.withValues(alpha: 0.5), size: 48),
             SizedBox(height: 16),
             Text('加载失败', style: TextStyle(color: _textColor, fontSize: 16)),
             SizedBox(height: 16),
@@ -1799,9 +2155,12 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             SizedBox(height: 80),
-            Icon(Icons.movie_rounded, color: _textColor.withValues(alpha: 0.3), size: 48),
+            Icon(Icons.movie_rounded,
+                color: _textColor.withValues(alpha: 0.3), size: 48),
             SizedBox(height: 16),
-            Text('暂无内容', style: TextStyle(color: _textColor.withValues(alpha: 0.6), fontSize: 16)),
+            Text('暂无内容',
+                style: TextStyle(
+                    color: _textColor.withValues(alpha: 0.6), fontSize: 16)),
           ],
         ),
       ),
@@ -1823,89 +2182,100 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> with Ti
             decoration: BoxDecoration(
               color: context.cardColor,
               borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.15),
-                blurRadius: 20,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: Text(
-                  '排序顺序',
-                  style: TextStyle(color: context.textSecondary, fontSize: 13, fontWeight: FontWeight.w500),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.15),
+                  blurRadius: 20,
+                  offset: const Offset(0, 4),
                 ),
-              ),
-              ..._sortOptions.map((option) => _SortMenuItem(
-                label: option,
-                isSelected: _sortBy == option,
-                isDescending: _sortDescending,
-                onTap: () {
-                  if (_sortBy == option) {
-                    setState(() => _sortDescending = !_sortDescending);
-                  } else {
-                    setState(() {
-                      _sortBy = option;
-                      _sortDescending = true;
-                    });
-                  }
-                },
-              )),
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                height: 1,
-                color: context.textSecondary.withValues(alpha: 0.2),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                child: Text(
-                  '展示样式',
-                  style: TextStyle(color: context.textSecondary, fontSize: 13, fontWeight: FontWeight.w500),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  child: Text(
+                    '排序顺序',
+                    style: TextStyle(
+                        color: context.textSecondary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500),
+                  ),
                 ),
-              ),
-              _SortMenuItem(
-                label: '网格视图',
-                isSelected: _isGridView,
-                showCheck: true,
-                onTap: () => setState(() => _isGridView = true),
-              ),
-              _SortMenuItem(
-                label: '列表视图',
-                isSelected: !_isGridView,
-                showCheck: true,
-                onTap: () => setState(() => _isGridView = false),
-              ),
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                height: 1,
-                color: context.textSecondary.withValues(alpha: 0.2),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                child: Text(
-                  '卡片样式',
-                  style: TextStyle(color: context.textSecondary, fontSize: 13, fontWeight: FontWeight.w500),
+                ..._sortOptions.map((option) => _SortMenuItem(
+                      label: option,
+                      isSelected: _sortBy == option,
+                      isDescending: _sortDescending,
+                      onTap: () {
+                        if (_sortBy == option) {
+                          setState(() => _sortDescending = !_sortDescending);
+                        } else {
+                          setState(() {
+                            _sortBy = option;
+                            _sortDescending = true;
+                          });
+                        }
+                      },
+                    )),
+                Container(
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  height: 1,
+                  color: context.textSecondary.withValues(alpha: 0.2),
                 ),
-              ),
-              _SortMenuItem(
-                label: '竖屏',
-                isSelected: _isPortraitCard,
-                showCheck: true,
-                onTap: () => setState(() => _isPortraitCard = true),
-              ),
-              _SortMenuItem(
-                label: '横屏',
-                isSelected: !_isPortraitCard,
-                showCheck: true,
-                onTap: () => setState(() => _isPortraitCard = false),
-              ),
-            ],
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                  child: Text(
+                    '展示样式',
+                    style: TextStyle(
+                        color: context.textSecondary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500),
+                  ),
+                ),
+                _SortMenuItem(
+                  label: '网格视图',
+                  isSelected: _isGridView,
+                  showCheck: true,
+                  onTap: () => setState(() => _isGridView = true),
+                ),
+                _SortMenuItem(
+                  label: '列表视图',
+                  isSelected: !_isGridView,
+                  showCheck: true,
+                  onTap: () => setState(() => _isGridView = false),
+                ),
+                Container(
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  height: 1,
+                  color: context.textSecondary.withValues(alpha: 0.2),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                  child: Text(
+                    '卡片样式',
+                    style: TextStyle(
+                        color: context.textSecondary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500),
+                  ),
+                ),
+                _SortMenuItem(
+                  label: '竖屏',
+                  isSelected: _isPortraitCard,
+                  showCheck: true,
+                  onTap: () => setState(() => _isPortraitCard = true),
+                ),
+                _SortMenuItem(
+                  label: '横屏',
+                  isSelected: !_isPortraitCard,
+                  showCheck: true,
+                  onTap: () => setState(() => _isPortraitCard = false),
+                ),
+              ],
             ),
           ),
         ),
@@ -1981,7 +2351,8 @@ class _SenPlayerCard extends StatelessWidget {
                       top: 8,
                       left: 8,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.7),
                           borderRadius: BorderRadius.circular(6),
@@ -2011,9 +2382,11 @@ class _SenPlayerCard extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: Colors.green,
                           shape: BoxShape.circle,
-                          border: Border.all(color: context.textPrimary, width: 2),
+                          border:
+                              Border.all(color: context.textPrimary, width: 2),
                         ),
-                        child: Icon(Icons.check, color: context.textPrimary, size: 12),
+                        child: Icon(Icons.check,
+                            color: context.textPrimary, size: 12),
                       ),
                     ),
                 ],
@@ -2023,7 +2396,8 @@ class _SenPlayerCard extends StatelessWidget {
           SizedBox(height: 6),
           Text(
             item.title,
-            style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.w500),
+            style: TextStyle(
+                color: textColor, fontSize: 13, fontWeight: FontWeight.w500),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -2031,7 +2405,8 @@ class _SenPlayerCard extends StatelessWidget {
             SizedBox(height: 2),
             Text(
               '${item.year}',
-              style: TextStyle(color: textColor.withValues(alpha: 0.5), fontSize: 11),
+              style: TextStyle(
+                  color: textColor.withValues(alpha: 0.5), fontSize: 11),
               maxLines: 1,
             ),
           ],
@@ -2074,8 +2449,10 @@ class _GenreCard extends StatelessWidget {
                       imageUrl: posterUrl,
                       fit: BoxFit.cover,
                       memCacheWidth: 300,
-                      placeholder: (_, __) => Container(color: Colors.grey.withValues(alpha: 0.3)),
-                      errorWidget: (_, __, ___) => Container(color: Colors.grey.withValues(alpha: 0.3)),
+                      placeholder: (_, __) =>
+                          Container(color: Colors.grey.withValues(alpha: 0.3)),
+                      errorWidget: (_, __, ___) =>
+                          Container(color: Colors.grey.withValues(alpha: 0.3)),
                     )
                   else
                     Container(color: Colors.grey.withValues(alpha: 0.3)),
@@ -2151,8 +2528,10 @@ class _FolderCard extends StatelessWidget {
                       imageUrl: posterUrl,
                       fit: BoxFit.cover,
                       memCacheWidth: 300,
-                      placeholder: (_, __) => Container(color: Colors.grey.withValues(alpha: 0.3)),
-                      errorWidget: (_, __, ___) => Container(color: Colors.grey.withValues(alpha: 0.3)),
+                      placeholder: (_, __) =>
+                          Container(color: Colors.grey.withValues(alpha: 0.3)),
+                      errorWidget: (_, __, ___) =>
+                          Container(color: Colors.grey.withValues(alpha: 0.3)),
                     )
                   else
                     Container(color: Colors.grey.withValues(alpha: 0.3)),
@@ -2160,14 +2539,18 @@ class _FolderCard extends StatelessWidget {
                     bottom: 8,
                     right: 8,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.6),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
                         '$count 部',
-                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w500),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w500),
                       ),
                     ),
                   ),
@@ -2178,7 +2561,8 @@ class _FolderCard extends StatelessWidget {
           SizedBox(height: 6),
           Text(
             folderName,
-            style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.w500),
+            style: TextStyle(
+                color: textColor, fontSize: 13, fontWeight: FontWeight.w500),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -2279,7 +2663,9 @@ class _SortMenuItem extends StatelessWidget {
             ),
             if (isSelected && !showCheck)
               Icon(
-                isDescending ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                isDescending
+                    ? Icons.arrow_downward_rounded
+                    : Icons.arrow_upward_rounded,
                 color: AppTheme.primary,
                 size: 18,
               ),
@@ -2299,7 +2685,8 @@ class DiscoverPage extends ConsumerStatefulWidget {
   ConsumerState<DiscoverPage> createState() => _DiscoverPageState();
 }
 
-class _DiscoverPageState extends ConsumerState<DiscoverPage> with AutomaticKeepAliveClientMixin {
+class _DiscoverPageState extends ConsumerState<DiscoverPage>
+    with AutomaticKeepAliveClientMixin {
   int _activeTab = 0;
   final List<String> _tabs = ['全部', '电影', '剧集'];
 
@@ -2322,7 +2709,8 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> with AutomaticKeepA
               titlePadding: EdgeInsets.zero,
               expandedTitleScale: 1.0,
               title: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -2371,7 +2759,9 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> with AutomaticKeepA
               child: Text(
                 _tabs[index],
                 style: TextStyle(
-                  color: isActive ? context.textPrimary : context.textPrimary.withValues(alpha: 0.7),
+                  color: isActive
+                      ? context.textPrimary
+                      : context.textPrimary.withValues(alpha: 0.7),
                   fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
                   fontSize: 14,
                 ),
@@ -2400,7 +2790,8 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> with AutomaticKeepA
         const _SectionHeader(title: '热门趋势', icon: Icons.trending_up_rounded),
         const _TrendingCarousel(),
         SizedBox(height: 24),
-        const _SectionHeader(title: '正在热映', icon: Icons.local_fire_department_rounded),
+        const _SectionHeader(
+            title: '正在热映', icon: Icons.local_fire_department_rounded),
         _MovieGrid(provider: nowPlayingMoviesProvider),
         SizedBox(height: 24),
         const _SectionHeader(title: '热门剧集', icon: Icons.tv_rounded),
@@ -2430,7 +2821,8 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> with AutomaticKeepA
         const _SectionHeader(title: '热门趋势', icon: Icons.trending_up_rounded),
         const _TrendingCarousel(),
         SizedBox(height: 24),
-        const _SectionHeader(title: '正在热映', icon: Icons.local_fire_department_rounded),
+        const _SectionHeader(
+            title: '正在热映', icon: Icons.local_fire_department_rounded),
         _MovieGrid(provider: nowPlayingMoviesProvider),
         SizedBox(height: 24),
         _SectionHeader(title: '最受欢迎', icon: Icons.star_rounded),
@@ -2483,9 +2875,9 @@ class _TVCarousel extends ConsumerWidget {
       error: (err, stack) => _buildErrorWidget(context, err.toString()),
       data: (tvList) {
         if (tvList.isEmpty) return const SizedBox.shrink();
-        
+
         final adapter = ScreenAdapter.of(context);
-        
+
         return SizedBox(
           height: adapter.carouselHeight,
           child: ListView.builder(
@@ -2508,7 +2900,7 @@ class _TVCarousel extends ConsumerWidget {
   Widget _buildLoadingCarousel(BuildContext context) {
     final adapter = ScreenAdapter.of(context);
     final cardWidth = adapter.cardWidth * 1.5;
-    
+
     return SizedBox(
       height: adapter.carouselHeight,
       child: ListView.builder(
@@ -2528,7 +2920,9 @@ class _TVCarousel extends ConsumerWidget {
     return SizedBox(
       height: 280,
       child: Center(
-        child: Text('加载失败: $error', style: TextStyle(color: context.textPrimary.withValues(alpha:0.6))),
+        child: Text('加载失败: $error',
+            style:
+                TextStyle(color: context.textPrimary.withValues(alpha: 0.6))),
       ),
     );
   }
@@ -2550,7 +2944,7 @@ class _TVTrendingCard extends StatelessWidget {
     final backdropPath = tv['backdrop_path'] ?? tv['backdropPath'];
     final voteAverage = tv['vote_average'] ?? tv['voteAverage'];
     final firstAirDate = tv['first_air_date'] ?? tv['firstAirDate'];
-    
+
     return ScaleCard(
       onTap: () => _navigateToDetail(context),
       child: Container(
@@ -2564,7 +2958,8 @@ class _TVTrendingCard extends StatelessWidget {
                   ? Hero(
                       tag: 'tv_${tv['id']}_backdrop',
                       child: CachedNetworkImage(
-                        imageUrl: 'https://image.tmdb.org/t/p/w500$backdropPath',
+                        imageUrl:
+                            'https://image.tmdb.org/t/p/w500$backdropPath',
                         height: cardHeight,
                         width: cardWidth,
                         fit: BoxFit.cover,
@@ -2575,7 +2970,8 @@ class _TVTrendingCard extends StatelessWidget {
                         ),
                         errorWidget: (_, __, ___) => Container(
                           color: Colors.black,
-                          child: Icon(Icons.tv, color: context.textPrimary, size: 40),
+                          child: Icon(Icons.tv,
+                              color: context.textPrimary, size: 40),
                         ),
                       ),
                     )
@@ -2583,7 +2979,9 @@ class _TVTrendingCard extends StatelessWidget {
                       color: Colors.black,
                       height: cardHeight,
                       width: cardWidth,
-                      child: Center(child: Icon(Icons.tv, color: context.textPrimary, size: 40)),
+                      child: Center(
+                          child: Icon(Icons.tv,
+                              color: context.textPrimary, size: 40)),
                     ),
             ),
             Positioned.fill(
@@ -2595,8 +2993,8 @@ class _TVTrendingCard extends StatelessWidget {
                     end: Alignment.bottomCenter,
                     colors: [
                       Colors.transparent,
-                      Colors.black.withValues(alpha:0.3),
-                      Colors.black.withValues(alpha:0.8),
+                      Colors.black.withValues(alpha: 0.3),
+                      Colors.black.withValues(alpha: 0.8),
                     ],
                   ),
                 ),
@@ -2626,9 +3024,10 @@ class _TVTrendingCard extends StatelessWidget {
                 top: 12,
                 right: 12,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha:0.6),
+                    color: Colors.black.withValues(alpha: 0.6),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
@@ -2669,7 +3068,7 @@ class _TVTrendingCard extends StatelessWidget {
                     Text(
                       firstAirDate.toString().substring(0, 4),
                       style: TextStyle(
-                        color: context.textPrimary.withValues(alpha:0.7),
+                        color: context.textPrimary.withValues(alpha: 0.7),
                         fontSize: adapter.subtitleFontSize,
                       ),
                     ),
@@ -2684,10 +3083,12 @@ class _TVTrendingCard extends StatelessWidget {
   }
 
   void _navigateToDetail(BuildContext context) {
-    Navigator.push(context, AppAnimations.buildPageRoute(
-      page: DetailScreen.fromTMDBTV(tv),
-      type: PageTransitionType.fade,
-    ));
+    Navigator.push(
+        context,
+        AppAnimations.buildPageRoute(
+          page: DetailScreen.fromTMDBTV(tv),
+          type: PageTransitionType.fade,
+        ));
   }
 }
 
@@ -2704,10 +3105,11 @@ class _TVGrid extends ConsumerWidget {
 
     return tvAsync.when(
       loading: () => _buildLoadingGrid(adapter, gridHeight),
-      error: (err, stack) => _buildErrorWidget(context, err.toString(), gridHeight),
+      error: (err, stack) =>
+          _buildErrorWidget(context, err.toString(), gridHeight),
       data: (tvList) {
         if (tvList.isEmpty) return const SizedBox.shrink();
-        
+
         return SizedBox(
           height: gridHeight,
           child: ListView.builder(
@@ -2747,7 +3149,9 @@ class _TVGrid extends ConsumerWidget {
     return SizedBox(
       height: height,
       child: Center(
-        child: Text('加载失败: $error', style: TextStyle(color: context.textPrimary.withValues(alpha:0.6))),
+        child: Text('加载失败: $error',
+            style:
+                TextStyle(color: context.textPrimary.withValues(alpha: 0.6))),
       ),
     );
   }
@@ -2788,22 +3192,28 @@ class _TVCard extends StatelessWidget {
                       flightShuttleBuilder: heroFlightShuttle,
                       child: posterPath != null
                           ? CachedNetworkImage(
-                              imageUrl: 'https://image.tmdb.org/t/p/w300$posterPath',
+                              imageUrl:
+                                  'https://image.tmdb.org/t/p/w300$posterPath',
                               fit: BoxFit.cover,
                               memCacheWidth: 300,
                               width: double.infinity,
                               height: double.infinity,
                               placeholder: (_, __) => Container(
-                                color: context.textPrimary.withValues(alpha:0.1),
-                                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                                color:
+                                    context.textPrimary.withValues(alpha: 0.1),
+                                child: Center(
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2)),
                               ),
                               errorWidget: (_, __, ___) => Container(
-                                color: context.textPrimary.withValues(alpha:0.1),
-                                child: Icon(Icons.tv, color: context.textPrimary),
+                                color:
+                                    context.textPrimary.withValues(alpha: 0.1),
+                                child:
+                                    Icon(Icons.tv, color: context.textPrimary),
                               ),
                             )
                           : Container(
-                              color: context.textPrimary.withValues(alpha:0.1),
+                              color: context.textPrimary.withValues(alpha: 0.1),
                               child: Icon(Icons.tv, color: context.textPrimary),
                             ),
                     ),
@@ -2812,9 +3222,10 @@ class _TVCard extends StatelessWidget {
                         top: 6,
                         right: 6,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha:0.7),
+                            color: Colors.black.withValues(alpha: 0.7),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Row(
@@ -2837,14 +3248,18 @@ class _TVCard extends StatelessWidget {
                       top: 6,
                       left: 6,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 4, vertical: 1),
                         decoration: BoxDecoration(
                           color: const Color.fromRGBO(99, 102, 241, 0.8),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
                           '剧集',
-                          style: TextStyle(color: context.textPrimary, fontSize: 9, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              color: context.textPrimary,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold),
                         ),
                       ),
                     ),
@@ -2868,7 +3283,7 @@ class _TVCard extends StatelessWidget {
               Text(
                 firstAirDate.toString().substring(0, 4),
                 style: TextStyle(
-                  color: context.textPrimary.withValues(alpha:0.6),
+                  color: context.textPrimary.withValues(alpha: 0.6),
                   fontSize: subtitleFontSize,
                 ),
                 maxLines: 1,
@@ -2882,10 +3297,12 @@ class _TVCard extends StatelessWidget {
   }
 
   void _navigateToDetail(BuildContext context) {
-    Navigator.push(context, AppAnimations.buildPageRoute(
-      page: DetailScreen.fromTMDBTV(tv),
-      type: PageTransitionType.fade,
-    ));
+    Navigator.push(
+        context,
+        AppAnimations.buildPageRoute(
+          page: DetailScreen.fromTMDBTV(tv),
+          type: PageTransitionType.fade,
+        ));
   }
 }
 
@@ -2941,9 +3358,9 @@ class _TrendingCarousel extends ConsumerWidget {
       error: (err, stack) => _buildErrorWidget(context, err.toString()),
       data: (movies) {
         if (movies.isEmpty) return const SizedBox.shrink();
-        
+
         final adapter = ScreenAdapter.of(context);
-        
+
         return SizedBox(
           height: adapter.carouselHeight,
           child: ListView.builder(
@@ -2966,7 +3383,7 @@ class _TrendingCarousel extends ConsumerWidget {
   Widget _buildLoadingCarousel(BuildContext context) {
     final adapter = ScreenAdapter.of(context);
     final cardWidth = adapter.cardWidth * 1.5;
-    
+
     return SizedBox(
       height: adapter.carouselHeight,
       child: ListView.builder(
@@ -2986,7 +3403,9 @@ class _TrendingCarousel extends ConsumerWidget {
     return SizedBox(
       height: 280,
       child: Center(
-        child: Text('加载失败: $error', style: TextStyle(color: context.textPrimary.withValues(alpha:0.6))),
+        child: Text('加载失败: $error',
+            style:
+                TextStyle(color: context.textPrimary.withValues(alpha: 0.6))),
       ),
     );
   }
@@ -3005,7 +3424,7 @@ class _TrendingCard extends StatelessWidget {
     final cardWidth = adapter.cardWidth * 1.5;
     final cardHeight = adapter.carouselHeight;
     final cardRadius = adapter.cardRadius;
-    
+
     return ScaleCard(
       onTap: () => _navigateToDetail(context),
       child: Container(
@@ -3019,7 +3438,8 @@ class _TrendingCard extends StatelessWidget {
                   ? Hero(
                       tag: 'movie_${movie.id}_backdrop',
                       child: CachedNetworkImage(
-                        imageUrl: 'https://image.tmdb.org/t/p/w500${movie.backdropPath}',
+                        imageUrl:
+                            'https://image.tmdb.org/t/p/w500${movie.backdropPath}',
                         height: cardHeight,
                         width: cardWidth,
                         fit: BoxFit.cover,
@@ -3030,7 +3450,8 @@ class _TrendingCard extends StatelessWidget {
                         ),
                         errorWidget: (_, __, ___) => Container(
                           color: Colors.black,
-                          child: Icon(Icons.movie, color: context.textPrimary, size: 40),
+                          child: Icon(Icons.movie,
+                              color: context.textPrimary, size: 40),
                         ),
                       ),
                     )
@@ -3038,7 +3459,9 @@ class _TrendingCard extends StatelessWidget {
                       color: Colors.black,
                       height: cardHeight,
                       width: cardWidth,
-                      child: Center(child: Icon(Icons.movie, color: context.textPrimary, size: 40)),
+                      child: Center(
+                          child: Icon(Icons.movie,
+                              color: context.textPrimary, size: 40)),
                     ),
             ),
             Positioned.fill(
@@ -3050,8 +3473,8 @@ class _TrendingCard extends StatelessWidget {
                     end: Alignment.bottomCenter,
                     colors: [
                       Colors.transparent,
-                      Colors.black.withValues(alpha:0.3),
-                      Colors.black.withValues(alpha:0.8),
+                      Colors.black.withValues(alpha: 0.3),
+                      Colors.black.withValues(alpha: 0.8),
                     ],
                   ),
                 ),
@@ -3081,9 +3504,10 @@ class _TrendingCard extends StatelessWidget {
                 top: 12,
                 right: 12,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha:0.6),
+                    color: Colors.black.withValues(alpha: 0.6),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
@@ -3124,7 +3548,7 @@ class _TrendingCard extends StatelessWidget {
                     Text(
                       movie.releaseDate!.substring(0, 4),
                       style: TextStyle(
-                        color: context.textPrimary.withValues(alpha:0.7),
+                        color: context.textPrimary.withValues(alpha: 0.7),
                         fontSize: adapter.subtitleFontSize,
                       ),
                     ),
@@ -3139,10 +3563,12 @@ class _TrendingCard extends StatelessWidget {
   }
 
   void _navigateToDetail(BuildContext context) {
-    Navigator.push(context, AppAnimations.buildPageRoute(
-      page: DetailScreen.fromTMDB(movie),
-      type: PageTransitionType.fade,
-    ));
+    Navigator.push(
+        context,
+        AppAnimations.buildPageRoute(
+          page: DetailScreen.fromTMDB(movie),
+          type: PageTransitionType.fade,
+        ));
   }
 }
 
@@ -3160,10 +3586,11 @@ class _MovieGrid extends ConsumerWidget {
 
     return moviesAsync.when(
       loading: () => _buildLoadingGrid(adapter, gridHeight),
-      error: (err, stack) => _buildErrorWidget(context, err.toString(), gridHeight),
+      error: (err, stack) =>
+          _buildErrorWidget(context, err.toString(), gridHeight),
       data: (movies) {
         if (movies.isEmpty) return const SizedBox.shrink();
-        
+
         return SizedBox(
           height: gridHeight,
           child: ListView.builder(
@@ -3203,7 +3630,9 @@ class _MovieGrid extends ConsumerWidget {
     return SizedBox(
       height: height,
       child: Center(
-        child: Text('加载失败: $error', style: TextStyle(color: context.textPrimary.withValues(alpha:0.6))),
+        child: Text('加载失败: $error',
+            style:
+                TextStyle(color: context.textPrimary.withValues(alpha: 0.6))),
       ),
     );
   }
@@ -3240,23 +3669,30 @@ class _MovieCard extends StatelessWidget {
                       flightShuttleBuilder: heroFlightShuttle,
                       child: movie.posterPath != null
                           ? CachedNetworkImage(
-                              imageUrl: 'https://image.tmdb.org/t/p/w300${movie.posterPath}',
+                              imageUrl:
+                                  'https://image.tmdb.org/t/p/w300${movie.posterPath}',
                               fit: BoxFit.cover,
                               memCacheWidth: 300,
                               width: double.infinity,
                               height: double.infinity,
                               placeholder: (_, __) => Container(
-                                color: context.textPrimary.withValues(alpha:0.1),
-                                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                                color:
+                                    context.textPrimary.withValues(alpha: 0.1),
+                                child: Center(
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2)),
                               ),
                               errorWidget: (_, __, ___) => Container(
-                                color: context.textPrimary.withValues(alpha:0.1),
-                                child: Icon(Icons.movie, color: context.textPrimary),
+                                color:
+                                    context.textPrimary.withValues(alpha: 0.1),
+                                child: Icon(Icons.movie,
+                                    color: context.textPrimary),
                               ),
                             )
                           : Container(
-                              color: context.textPrimary.withValues(alpha:0.1),
-                              child: Icon(Icons.movie, color: context.textPrimary),
+                              color: context.textPrimary.withValues(alpha: 0.1),
+                              child:
+                                  Icon(Icons.movie, color: context.textPrimary),
                             ),
                     ),
                     if (movie.voteAverage != null)
@@ -3264,9 +3700,10 @@ class _MovieCard extends StatelessWidget {
                         top: 6,
                         right: 6,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha:0.7),
+                            color: Colors.black.withValues(alpha: 0.7),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Row(
@@ -3305,7 +3742,7 @@ class _MovieCard extends StatelessWidget {
               Text(
                 movie.releaseDate!.substring(0, 4),
                 style: TextStyle(
-                  color: context.textPrimary.withValues(alpha:0.6),
+                  color: context.textPrimary.withValues(alpha: 0.6),
                   fontSize: subtitleFontSize,
                 ),
               ),
@@ -3316,507 +3753,11 @@ class _MovieCard extends StatelessWidget {
   }
 
   void _navigateToDetail(BuildContext context) {
-    Navigator.push(context, AppAnimations.buildPageRoute(
-      page: DetailScreen.fromTMDB(movie),
-      type: PageTransitionType.fade,
-    ));
+    Navigator.push(
+        context,
+        AppAnimations.buildPageRoute(
+          page: DetailScreen.fromTMDB(movie),
+          type: PageTransitionType.fade,
+        ));
   }
 }
-
-/// 点击液态玻璃胶囊：从点击 tab 跳起弧线（越出导航栏上沿）吸附到目标位，
-/// 玻璃内容用 DispersionGlass shader 渲染；移动时只更新 shader 内偏移（零重截取）。
-class _LiquidPill extends StatefulWidget {
-  final GlobalKey trackKey;
-  final GlobalKey backdropKey;
-  final GlobalKey<DispersionGlassState> glassKey;
-  final int index;
-  final double itemWidth;
-  final double height;
-  final bool active;
-  final Color tint;
-  final double tintAlpha;
-
-  const _LiquidPill({
-    super.key,
-    required this.trackKey,
-    required this.backdropKey,
-    required this.glassKey,
-    required this.index,
-    required this.itemWidth,
-    required this.height,
-    required this.active,
-    required this.tint,
-    required this.tintAlpha,
-  });
-
-  @override
-  State<_LiquidPill> createState() => _LiquidPillState();
-}
-
-class _LiquidPillState extends State<_LiquidPill> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late double _fromLeft;
-  late double _targetLeft;
-  // Apple 风格 Spring 参数：阻尼比 0.95（过冲极少，类似 iOS UITabBar 的选中位移）
-  static const SpringDescription _spring = SpringDescription(
-    mass: 0.5,
-    stiffness: 260,
-    damping: 26,
-  );
-  SpringSimulation? _sim;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this, lowerBound: double.negativeInfinity, upperBound: double.infinity)
-      ..addListener(_onTick);
-    _fromLeft = widget.index * widget.itemWidth;
-    _targetLeft = _fromLeft;
-    _controller.value = _fromLeft;
-  }
-
-  @override
-  void didUpdateWidget(covariant _LiquidPill oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.itemWidth != oldWidget.itemWidth) {
-      _fromLeft = widget.index * widget.itemWidth;
-      _targetLeft = _fromLeft;
-    }
-    if (widget.index != oldWidget.index) {
-      _fromLeft = _controller.value.isFinite ? _controller.value : oldWidget.index * widget.itemWidth;
-      _targetLeft = widget.index * widget.itemWidth;
-      _setPathCaptureWindow(oldWidget.index, widget.index);
-      final disableAnim = MediaQuery.disableAnimationsOf(context);
-      if (disableAnim) {
-        // reduced-motion：直接跳到目标位置，不跑 Spring
-        _sim = null;
-        _controller.value = _targetLeft;
-      } else {
-        _launchSpring();
-      }
-    }
-  }
-
-  /// 用 SpringSimulation 驱动到 _targetLeft，可中断（再次 didUpdateWidget 会重置 sim）
-  void _launchSpring() {
-    // 起始速度：若当前仍在运动中（上一个 Spring 未结束）则继承，保持流体无缝
-    final velocity = _sim == null ? 0.0 : _controller.velocity;
-    _sim = SpringSimulation(_spring, _fromLeft, _targetLeft, velocity);
-    _controller.animateWith(_sim!);
-  }
-
-  /// 截取覆盖「旧 → 新 + 光晕」的一次性窗口（移动中零重截取）
-  void _setPathCaptureWindow(int fromIndex, int toIndex) {
-    final trackBox = widget.trackKey.currentContext?.findRenderObject();
-    if (trackBox is! RenderBox || !trackBox.attached || !trackBox.hasSize) return;
-    final x1 = (fromIndex < toIndex ? fromIndex : toIndex) * widget.itemWidth;
-    final x2 = (fromIndex < toIndex ? toIndex + 1 : fromIndex + 1) * widget.itemWidth;
-    final top = -DispersionGlass.haloV - 2.0;
-    final bottom = widget.height + DispersionGlass.haloV + 2.0;
-    final global = trackBox.localToGlobal(Offset(x1 - DispersionGlass.haloH - 2.0, top));
-    final path = Rect.fromLTWH(
-      global.dx,
-      global.dy,
-      (x2 - x1) + (DispersionGlass.haloH + 2.0) * 2,
-      bottom - top,
-    );
-    widget.glassKey.currentState?.setCaptureWindow(path);
-  }
-
-  /// 逐帧：更新胶囊全局几何 → shader 平移采样（纹理复用）
-  void _onTick() {
-    final curLeft = _controller.value.clamp(0.0, widget.itemWidth * 3.0);
-    final trackBox = widget.trackKey.currentContext?.findRenderObject();
-    // initState 里 _controller.value 赋值会立即触发本回调，
-    // 此时首帧尚未布局，localToGlobal 会抛 "RenderBox was not laid out"。
-    if (trackBox is! RenderBox || !trackBox.attached || !trackBox.hasSize) return;
-    final trackGlobal = trackBox.localToGlobal(Offset.zero);
-    final pillTopLeft = trackGlobal + Offset(curLeft, 0);
-    widget.glassKey.currentState?.updatePillGeometry(
-      pillTopLeft,
-      Size(widget.itemWidth, widget.height),
-    );
-    // Spring 结束时（值足够接近目标 + 速度很小）恢复按自身位置截取
-    if (_sim != null && !_controller.isAnimating) {
-      _sim = null;
-      widget.glassKey.currentState?.setCaptureWindow(null);
-      widget.glassKey.currentState?.refresh();
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        final curLeft = _controller.value.clamp(0.0, widget.itemWidth * 3.0);
-        // 仅水平位移：垂直不跳、scale 不变，符合数十次/天频率门
-        const radius = 22.0;
-        return Positioned(
-          left: curLeft,
-          top: 0,
-          width: widget.itemWidth,
-          height: widget.height,
-          // 外层 Squircle 裁剪：包住玻璃、阴影、噪点，所有边角统一连续曲率
-          child: ClipPath.shape(
-            shape: const SquircleBorder(radius: radius),
-            child: DispersionGlass(
-              key: widget.glassKey,
-              backdropKey: widget.backdropKey,
-              radius: radius,
-              active: widget.active,
-              tint: widget.tint,
-              tintAlpha: widget.tintAlpha,
-              blur: 1.1,
-              dispersion: 1.7,   // 收紧色散（原 2.2 太夸张）
-              edgeGlow: 0.85,    // 收紧辉光强度
-              saturation: 1.2,   // Floatica liquidGlass 同款 1.2× 饱和度提升
-              child: Stack(
-                children: [
-                  // 最底层：主题渐变描边 + 收紧后的柔和色散辉光
-                  Positioned.fill(
-                    child: Container(
-                      padding: const EdgeInsets.all(1),
-                      decoration: ShapeDecoration(
-                        shape: const SquircleBorder(radius: radius),
-                        gradient: const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            Color(0xB87C5CFB),
-                            Color(0x5540B4FF),
-                            Color(0xB87C5CFB),
-                          ],
-                        ),
-                        // 收紧后的 3 层辉光：柔和主色 ×2 + 底部投影 1 层（无青/品红炫彩色）
-                        shadows: [
-                          BoxShadow(color: AppTheme.primary.withValues(alpha: 0.28), blurRadius: 6),
-                          BoxShadow(color: AppTheme.primary.withValues(alpha: 0.22), blurRadius: 12),
-                          BoxShadow(color: Colors.black.withValues(alpha: 0.45), blurRadius: 18, offset: Offset(0, 4)),
-                        ],
-                      ),
-                      child: Stack(
-                        children: [
-                          // L1：玻璃高光渐变（顶部 + 底部双层）
-                          Positioned.fill(
-                            child: Container(
-                              decoration: ShapeDecoration(
-                                shape: const SquircleBorder(radius: radius - 1),
-                                gradient: const LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [Color(0x2EFFFFFF), Color(0x0CFFFFFF), Color(0x14000000)],
-                                  stops: [0.0, 0.45, 1.0],
-                                ),
-                              ),
-                            ),
-                          ),
-                          // L2：顶部镜面高光带（1.4px，Floatica specularHighlight）
-                          Positioned(
-                            left: 10,
-                            right: 10,
-                            top: 1.5,
-                            child: Container(
-                              height: 1.4,
-                              decoration: BoxDecoration(
-                                color: Color(0x38FFFFFF),
-                                borderRadius: BorderRadius.circular(1.5),
-                              ),
-                            ),
-                          ),
-                          // L3：iOS 26 玻璃边框（1.0px，alpha 24% white — Floatica borderColor white24 对应）
-                          Positioned.fill(
-                            child: Container(
-                              decoration: ShapeDecoration(
-                                shape: SquircleBorder(
-                                  radius: radius - 1,
-                                  side: const BorderSide(
-                                    color: Color(0x3DFFFFFF),   // ~24% white（Floatica 标准值）
-                                    width: 0.8,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          // L4：内阴影（innerShadow：顶 0.8 white14 + 底 1.2 black30，玻璃厚度感）
-                          Positioned.fill(
-                            child: IgnorePointer(
-                              child: CustomPaint(
-                                painter: _InnerShadowPainter(radius: radius - 1),
-                              ),
-                            ),
-                          ),
-                          // L5：噪点纹理（Frosted Noise，Floatica noiseOpacity 0.05）
-                          Positioned.fill(
-                            child: IgnorePointer(
-                              child: ClipPath.shape(
-                                shape: const SquircleBorder(radius: radius - 1),
-                                child: const _NoiseTile(opacity: 0.05),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// iOS 26 glass inner shadow：顶 + 底各一条（使用 Canvas 裁剪后画）
-class _InnerShadowPainter extends CustomPainter {
-  final double radius;
-
-  _InnerShadowPainter({required this.radius});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = SquircleBorder.buildSquircle(Offset.zero & size, radius);
-    // 顶部白色内发光 0.8px
-    final top = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: const [Color(0x24FFFFFF), Color(0x00FFFFFF)],
-        stops: const [0.0, 1.0],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, 3.5));
-    canvas.save();
-    canvas.clipPath(path);
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, 3.5), top);
-    // 底部黑色内阴影 1.2px
-    final bottom = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.bottomCenter,
-        end: Alignment.topCenter,
-        colors: const [Color(0x4D000000), Color(0x00000000)],
-        stops: const [0.0, 1.0],
-      ).createShader(Rect.fromLTWH(0, size.height - 4, size.width, 4));
-    canvas.drawRect(Rect.fromLTWH(0, size.height - 4, size.width, 4), bottom);
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant _InnerShadowPainter oldDelegate) =>
-      oldDelegate.radius != radius;
-}
-
-/// Frosted Noise：低透明度的瓦片噪点贴图（不需要下载资产，程序生成一个 2×2 的 checker）
-class _NoiseTile extends StatelessWidget {
-  final double opacity;
-
-  const _NoiseTile({this.opacity = 0.05});
-
-  @override
-  Widget build(BuildContext context) {
-    return Opacity(
-      opacity: opacity,
-      child: Image.memory(
-        _kNoiseBytes,
-        repeat: ImageRepeat.repeat,
-        scale: 1.0,
-        width: 8,
-        height: 8,
-      ),
-    );
-  }
-
-  // 生成一次 16×16 灰噪 8-bit PNG（328 字节，工程启动时直接读内存，不依赖外部文件）
-  static final Uint8List _kNoiseBytes = _buildNoise();
-
-  static Uint8List _buildNoise() {
-    // 用伪程序方式生成一个 2×2 纯色 + 抖动：实际上用 RepaintBoundary 太复杂；
-    // 这里生成一张 2×2 的纯色 PNG（两黑两白 checker），
-    // 叠加在 glass 上后肉眼呈现"磨砂玻璃颗粒感"，不依赖 dart:io。
-    // 1×1×8bit PNG 最小字节 → 改写为 2x2 gray：
-    // 下面字节是一张 16×16 的 8-bit 灰度 PNG（硬编码，合法 PNG header+IHDR+IDAT+IEND，
-    // 由一张真实噪点图导出的最小化版本）：
-    final b = BytesBuilder(copy: false);
-    // PNG signature
-    b.add([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
-    // IHDR: 16x16, 8-bit grayscale
-    final ihdrData = <int>[
-      0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x10,
-      0x08, 0x00, 0x00, 0x00, 0x00,
-    ];
-    _addChunk(b, 0x49484452, ihdrData);
-    // IDAT：非常简单的均匀噪点（全 0x7f + 轻微随机抖动——这里不做真实随机，直接用 deflate 的 "store"）
-    // 16 rows × (1 filter byte + 16 gray) = 16*17 = 272 bytes。用非压缩 deflate store block。
-    final payload = <int>[];
-    for (var y = 0; y < 16; y++) {
-      payload.add(0x00); // filter None
-      for (var x = 0; x < 16; x++) {
-        // 简单抖动：基于 x+y 产生一个 0x60~0x90 的均匀值，避免纯白纯黑
-        final v = 0x70 + (((x * 7 + y * 13) % 33) - 16);
-        payload.add(v.clamp(0, 255));
-      }
-    }
-    final idatData = _deflateStore(payload);
-    _addChunk(b, 0x49444154, idatData);
-    // IEND
-    _addChunk(b, 0x49454E44, const <int>[]);
-    return b.takeBytes();
-  }
-
-  static List<int> _deflateStore(List<int> raw) {
-    final result = <int>[];
-    final blocks = <List<int>>[];
-    const maxLen = 0xFFFF;
-    for (var i = 0; i < raw.length; i += maxLen) {
-      final end = (i + maxLen > raw.length) ? raw.length : i + maxLen;
-      blocks.add(raw.sublist(i, end));
-    }
-    for (var b = 0; b < blocks.length; b++) {
-      final block = blocks[b];
-      final isLast = (b == blocks.length - 1) ? 1 : 0;
-      final len = block.length;
-      result.add(isLast);
-      result.add(len & 0xFF);
-      result.add((len >> 8) & 0xFF);
-      result.add((~len) & 0xFF);
-      result.add(((~len) >> 8) & 0xFF);
-      result.addAll(block);
-    }
-    // 包一层 zlib 头：0x78 0x9C
-    final out = <int>[0x78, 0x9C, ...result];
-    // adler32
-    int a = 1, b = 0;
-    for (final x in raw) {
-      a = (a + x) % 65521;
-      b = (b + a) % 65521;
-    }
-    final adler = (b << 16) | a;
-    out.add((adler >> 24) & 0xFF);
-    out.add((adler >> 16) & 0xFF);
-    out.add((adler >> 8) & 0xFF);
-    out.add(adler & 0xFF);
-    return out;
-  }
-
-  static void _addChunk(BytesBuilder b, int type, List<int> data) {
-    final lenBytes = [
-      (data.length >> 24) & 0xFF,
-      (data.length >> 16) & 0xFF,
-      (data.length >> 8) & 0xFF,
-      data.length & 0xFF,
-    ];
-    b.add(lenBytes);
-    final crcData = <int>[
-      (type >> 24) & 0xFF,
-      (type >> 16) & 0xFF,
-      (type >> 8) & 0xFF,
-      type & 0xFF,
-      ...data,
-    ];
-    b.add([crcData[0], crcData[1], crcData[2], crcData[3]]);
-    b.add(data);
-    final crc = _crc32(crcData);
-    b.add([
-      (crc >> 24) & 0xFF,
-      (crc >> 16) & 0xFF,
-      (crc >> 8) & 0xFF,
-      crc & 0xFF,
-    ]);
-  }
-
-  static int _crc32(List<int> bytes) {
-    int crc = 0xFFFFFFFF;
-    const poly = 0xEDB88320;
-    for (final byte in bytes) {
-      crc ^= byte;
-      for (var i = 0; i < 8; i++) {
-        crc = (crc >> 1) ^ ((crc & 1) * poly);
-      }
-    }
-    return ~crc & 0xFFFFFFFF;
-  }
-}
-
-/// Apple「连续曲率」Squircle 圆角：`BorderRadius.circular` 的替代品。
-///
-/// Flutter 自带的 circular 圆角是几何圆的截断（有「角尖突然结束」的感觉），
-/// iOS 用的是 Squircle：从直边过渡到圆角时是「连续曲率」（curvature=0 → 平滑上升 → 圆角顶 → 下降回 0），
-/// 这里用 8 段 Cubic 贝塞尔近似实现，不引入额外依赖。
-class SquircleBorder extends OutlinedBorder {
-  final double radius;
-  final BorderSide side;
-
-  const SquircleBorder({this.radius = 22, this.side = BorderSide.none});
-
-  @override
-  ShapeBorder scale(double t) => SquircleBorder(radius: radius * t, side: side.scale(t));
-
-  @override
-  Path getOuterPath(Rect rect, {TextDirection? textDirection}) =>
-      buildSquircle(rect, radius);
-
-  @override
-  Path getInnerPath(Rect rect, {TextDirection? textDirection}) {
-    final inset = side.width;
-    return buildSquircle(rect.deflate(inset), max(0.0, radius - inset));
-  }
-
-  static Path buildSquircle(Rect rect, double r) {
-    final w = rect.width;
-    final h = rect.height;
-    // 安全钳制：半径不得超过最短边一半
-    final R = min(r, min(w / 2, h / 2));
-    // Squircle 平滑系数：k=0.55 对应 Apple WWDC 推荐的连续曲率（circular 默认约 0.5）
-    const k = 0.55;
-    final kR = k * R;
-    final x0 = rect.left;
-    final y0 = rect.top;
-    final x1 = rect.right;
-    final y1 = rect.bottom;
-    // 左上
-    final tlC1 = Offset(x0 + R - kR, y0);
-    final tlC2 = Offset(x0, y0 + R - kR);
-    // 右上
-    final trC1 = Offset(x1 - R + kR, y0);
-    final trC2 = Offset(x1, y0 + R - kR);
-    // 右下
-    final brC1 = Offset(x1 - R + kR, y1);
-    final brC2 = Offset(x1, y1 - R + kR);
-    // 左下
-    final blC1 = Offset(x0 + R - kR, y1);
-    final blC2 = Offset(x0, y1 - R + kR);
-    final path = Path()
-      ..moveTo(x0 + R, y0)
-      ..lineTo(x1 - R, y0)
-      ..cubicTo(trC1.dx, trC1.dy, trC2.dx, trC2.dy, x1, y0 + R)
-      ..lineTo(x1, y1 - R)
-      ..cubicTo(brC2.dx, brC2.dy, brC1.dx, brC1.dy, x1 - R, y1)
-      ..lineTo(x0 + R, y1)
-      ..cubicTo(blC1.dx, blC1.dy, blC2.dx, blC2.dy, x0, y1 - R)
-      ..lineTo(x0, y0 + R)
-      ..cubicTo(tlC2.dx, tlC2.dy, tlC1.dx, tlC1.dy, x0 + R, y0)
-      ..close();
-    return path;
-  }
-
-  @override
-  void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {
-    if (side.style != BorderStyle.none && side.width > 0) {
-      final path = getOuterPath(rect, textDirection: textDirection);
-      final paint = side.toPaint();
-      canvas.drawPath(path, paint);
-    }
-  }
-
-  @override
-  OutlinedBorder copyWith({BorderSide? side}) =>
-      SquircleBorder(radius: radius, side: side ?? this.side);
-}
-
-
