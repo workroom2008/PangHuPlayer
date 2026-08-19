@@ -433,7 +433,7 @@ git commit -m "feat: 增加统一媒体库内容页"
 - Consumes: `lib/screens/media_library/media_library_items_screen.dart` 的公共 `LibraryItemsScreen`。
 - Produces: 两个原入口继续可以通过原有 import 路径引用 `LibraryItemsScreen`，首页和服务器入口实际打开同一个共享 runtimeType。
 
-- [ ] **Step 1: 写失败回归测试**
+- [x] **Step 1: 写失败回归测试**
 
 在 `test/media_library_entry_points_test.dart` 新增测试，分别 import：
 
@@ -456,7 +456,7 @@ void main() {
 
 先运行该测试，确认迁移前因两个文件各自拥有独立 `LibraryItemsScreen` 而失败。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 运行：
 
@@ -466,7 +466,7 @@ HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= NO_PROXY=127.0.0.1,localhost flutter test te
 
 期望：FAIL，原因是两个入口的 `LibraryItemsScreen` 不是共享类型。
 
-- [ ] **Step 3: 写最小迁移实现**
+- [x] **Step 3: 写最小迁移实现**
 
 在两个旧页面文件的 import 区加入：
 
@@ -477,7 +477,7 @@ export '../media_library/media_library_items_screen.dart';
 
 服务器页面的相对路径为 `../media_library/media_library_items_screen.dart`；首页页面的相对路径同样为 `../media_library/media_library_items_screen.dart`。删除两个文件中旧的 `LibraryItemsScreen`、`_LibraryItemsScreenState`、`_MediaItemCard`、`_SenPlayerCard`、`_GenreCard`、`_FolderCard`、`_AnimatedMenuPanel` 和 `_SortMenuItem` 定义，只保留各自入口页面。删除后清理仅由这些旧类使用的 import，保留其他首页/服务器页面依赖。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 运行：
 
@@ -487,7 +487,7 @@ HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= NO_PROXY=127.0.0.1,localhost flutter test te
 
 期望入口回归通过，现有排序动画测试若依赖旧菜单则删除该旧测试中针对旧菜单的断言，并替换为共享页面排序面板行为断言；不得保留一个已经不属于产品行为的测试。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add lib/screens/home/home_screen.dart lib/screens/servers/media_library_screen.dart test/media_library_entry_points_test.dart test/media_library_overflow_test.dart test/sort_menu_animation_test.dart

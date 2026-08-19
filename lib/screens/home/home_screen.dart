@@ -1,4 +1,3 @@
-import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
 import 'dart:ui';
@@ -25,6 +24,8 @@ import '../detail/detail_screen.dart';
 import '../search/search_screen.dart';
 import '../settings/settings_screen.dart';
 import 'resources_page.dart';
+import '../media_library/media_library_items_screen.dart';
+export '../media_library/media_library_items_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -38,6 +39,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   int _currentIndex = 0;
   late PageController _pageController;
   bool _isNavVisible = true;
+  bool _suppressPageChange = false; // 抑制 animateToPage 期间的 onPageChanged
   // 导航栏显示/隐藏动画（单 controller，slide+opacity 严格同步）
   late final AnimationController _navAnim;
 
@@ -97,7 +99,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: _currentIndex == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _currentIndex != 0) {
+          // 不是最首页时，后退回到媒体tab
+          _navigateTo(0);
+        }
+      },
+      child: Scaffold(
         body: GestureDetector(
       onTap: () {
         // 内容被点按时唤出导航栏（滚动感知的主通道是 ScrollNotification）
@@ -112,7 +122,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               child: PageView(
                 controller: _pageController,
                 onPageChanged: (index) {
-                  // 点击切换时目标索引已提前更新；手势滑页时才在这里同步。
+                  // 抑制 animateToPage 期间的中间页回调，避免胶囊跳动
+                  if (_suppressPageChange) return;
+                  // 手势滑页时同步导航栏
                   if (_currentIndex != index) {
                     setState(() => _currentIndex = index);
                   }
@@ -135,7 +147,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ),
         ],
       ),
-    ));
+    ),
+    ),
+  );
   }
 
   Widget _buildBottomNav() {
@@ -170,21 +184,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _navigateTo(int index) {
-    // A-8: Haptic + reduced-motion gating（胶囊滑动由 _NavBar didUpdateWidget 驱动）
+    if (index == _currentIndex) return;
+    unawaited(HapticFeedback.selectionClick());
+    setState(() => _currentIndex = index);
     final disableAnim = MediaQuery.disableAnimationsOf(context);
-    if (index != _currentIndex) {
-      unawaited(HapticFeedback.selectionClick());
-      setState(() => _currentIndex = index);
-      if (!disableAnim) {
-        _pageController.animateToPage(
-          index,
-          duration: AppAnimations.medium,
-          curve: AppAnimations.easeInOut,
-        );
-      } else {
-        // reduced-motion：直接跳到目标页
-        _pageController.jumpToPage(index);
-      }
+    if (disableAnim) {
+      _pageController.jumpToPage(index);
+    } else {
+      // 抑制 animateToPage 过程中的 onPageChanged 回调
+      _suppressPageChange = true;
+      _pageController
+          .animateToPage(index,
+              duration: AppAnimations.medium, curve: AppAnimations.easeInOut)
+          .whenComplete(() => _suppressPageChange = false);
     }
   }
 }
@@ -219,10 +231,6 @@ class _NavBar extends StatefulWidget {
 }
 
 class _NavBarState extends State<_NavBar> with TickerProviderStateMixin {
-  /// Apple 风格 Spring（与旧版胶囊同参数，可中断）
-  static const SpringDescription _spring =
-      SpringDescription(mass: 0.5, stiffness: 260, damping: 26);
-
   /// Miuix LiquidGlass 示例的按压缩放（pressedScale = 78/56 ≈ 1.39）
   static const double _pressScale = 1.39;
 
@@ -232,7 +240,6 @@ class _NavBarState extends State<_NavBar> with TickerProviderStateMixin {
 
   late final AnimationController _posCtrl; // 胶囊左偏移（0..(n-1)*tabW）
   late final AnimationController _scaleCtrl; // 0..1 按压缩放进度
-  SpringSimulation? _sim;
   double _tabW = 0;
   int? _pressedIndex;
   double _stretchX = 1, _stretchY = 1; // 拖拽速度拉伸
@@ -259,29 +266,26 @@ class _NavBarState extends State<_NavBar> with TickerProviderStateMixin {
   void didUpdateWidget(covariant _NavBar oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.currentIndex != oldWidget.currentIndex && _tabW > 0) {
-      // 弹簧滑动到新 tab（可中断：拖拽/再次切换会重置 sim）
-      _springTo(widget.currentIndex * _tabW);
+      final target = widget.currentIndex * _tabW;
+      if (widget.disableAnim) {
+        _posCtrl.value = target;
+      } else {
+        // 所有 index 变化统一用 easeOut 直接到位，不弹跳
+        _posCtrl.stop();
+        _posCtrl.animateTo(target,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOutCubic);
+      }
     }
   }
 
-  void _springTo(double target) {
-    if (widget.disableAnim) {
-      _sim = null;
-      _posCtrl.value = target;
-      return;
-    }
-    final from = _posCtrl.value.isFinite ? _posCtrl.value : 0.0;
-    final velocity = _sim == null ? 0.0 : _posCtrl.velocity;
-    _sim = SpringSimulation(_spring, from, target, velocity);
-    _posCtrl.animateWith(_sim!);
-  }
+
 
   /// 尺寸随断点变化时直接归位，不播放滑动
   void _syncSize(double tabW) {
     if (_tabW == tabW) return;
     _tabW = tabW;
     _posCtrl.value = widget.currentIndex * tabW;
-    _sim = null;
   }
 
   int _indexAt(double localX) => (((localX - 4) / _tabW).floor()).clamp(0, 3);
@@ -306,8 +310,7 @@ class _NavBarState extends State<_NavBar> with TickerProviderStateMixin {
         }
       }));
     }
-    // 按下即吸附到该 tab（Miuix 示例行为）
-    _springTo(idx * _tabW);
+    // 胶囊移动只由 didUpdateWidget（currentIndex 变化）驱动。
   }
 
   void _pressEnd() {
@@ -321,7 +324,6 @@ class _NavBarState extends State<_NavBar> with TickerProviderStateMixin {
 
   void _dragUpdate(double deltaX) {
     _posCtrl.stop();
-    _sim = null;
     final maxX = _tabW * 3;
     _posCtrl.value = (_posCtrl.value + deltaX).clamp(0.0, maxX);
     // 速度拉伸：按拖拽增量近似速度（scaleX = 1/(1-v)，纵向反向压缩）
@@ -336,7 +338,12 @@ class _NavBarState extends State<_NavBar> with TickerProviderStateMixin {
     _pressEnd();
     final idx = ((_posCtrl.value / _tabW).round()).clamp(0, 3);
     if (idx != widget.currentIndex) widget.onSelect(idx);
-    _springTo(idx * _tabW);
+    // 拖拽结束 snap 到最近 tab，用 easeOut 过渡
+    final target = idx * _tabW;
+    _posCtrl.stop();
+    _posCtrl.animateTo(target,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic);
   }
 
   @override
@@ -417,7 +424,7 @@ class _NavBarState extends State<_NavBar> with TickerProviderStateMixin {
         final sx = press * _stretchX;
         final sy = press * _stretchY;
         return Positioned(
-          left: 4,
+          left: 0,
           top: 4,
           width: tabW,
           height: pillH,
@@ -725,7 +732,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage>
               ),
               child: Row(
                 children: [
-                  const ServerSelectorChip(),
+                  const ServerSelectorChip(compact: true),
                   const Spacer(),
                   GestureDetector(
                     onTap: () {
@@ -759,12 +766,16 @@ class _LibraryPageState extends ConsumerState<LibraryPage>
   Widget _buildCarousel(List<MediaItem> items, Size size) {
     final svc = ref.watch(currentMediaServerServiceProvider);
     final headers = svc?.imageHeaders;
+    // 竖屏用较小比例，横屏用较大比例，避免竖屏时轮播占满屏幕
+    final isPortrait = MediaQuery.orientationOf(context) == Orientation.portrait;
+    final carouselRatio = isPortrait ? 0.42 : 0.65;
+    final carouselH = size.height * carouselRatio;
     if (items.isEmpty) {
       return SizedBox(
-          height: size.height * 0.65, child: Container(color: context.bgColor));
+          height: carouselH, child: Container(color: context.bgColor));
     }
     return SizedBox(
-      height: size.height * 0.65,
+      height: carouselH,
       child: Stack(
         children: [
           HomeHeroCarousel(
@@ -1095,7 +1106,7 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent>
     final cardWidth = adapter.cardWidth;
     final cardHeight = cardWidth / adapter.cardAspectRatio;
     return SizedBox(
-      height: 220,
+      height: _categoryItemsHeight(context, hasYear: true),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         physics: const NeverScrollableScrollPhysics(),
@@ -1271,7 +1282,11 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent>
   Widget _buildCategoryItems(
       List<MediaItem> items, MediaItem library, int categoryIndex) {
     return SizedBox(
-      height: 220,
+      // 大屏海报高度较大，标题和年份需要额外的纵向空间。
+      height: _categoryItemsHeight(
+        context,
+        hasYear: items.any((item) => item.year != null),
+      ),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         itemCount: items.length,
@@ -1286,6 +1301,26 @@ class _MediaLibraryContentState extends ConsumerState<_MediaLibraryContent>
         },
       ),
     );
+  }
+
+  double _categoryItemsHeight(
+    BuildContext context, {
+    required bool hasYear,
+  }) {
+    final adapter = ScreenAdapter.of(context);
+    final textScaler = MediaQuery.textScalerOf(context);
+    final cardHeight = adapter.cardWidth / adapter.cardAspectRatio;
+    final titleLineHeight = textScaler.scale(12) * 1.2;
+    final subtitleLineHeight =
+        textScaler.scale(adapter.subtitleFontSize) * 1.2;
+    final requiredHeight = cardHeight +
+        6 +
+        titleLineHeight * 2 +
+        (hasYear ? subtitleLineHeight : 0) +
+        4;
+
+    // 保留手机端原有高度，大屏端按卡片和文字实际高度扩展。
+    return requiredHeight > 220 ? requiredHeight : 220;
   }
 }
 
@@ -1329,10 +1364,17 @@ class _ContinueWatchingCard extends StatelessWidget {
             : item.title)
         : null;
 
+    // 竖屏时卡片宽度自适应屏幕（占65%），横屏保持250
+    final isPortrait = MediaQuery.orientationOf(context) == Orientation.portrait;
+    final cardW = isPortrait
+        ? (MediaQuery.sizeOf(context).width * 0.65).clamp(180.0, 250.0)
+        : 250.0;
+    final cardH = cardW * 9 / 16; // 16:9 比例
+
     return ScaleCard(
       onTap: onTap,
       child: Container(
-        width: 250,
+        width: cardW,
         margin: const EdgeInsets.only(right: 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1341,8 +1383,8 @@ class _ContinueWatchingCard extends StatelessWidget {
             ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: SizedBox(
-                width: 250,
-                height: 141,
+                width: cardW,
+                height: cardH,
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
@@ -1569,1108 +1611,18 @@ class _MediaItemCard extends ConsumerWidget {
                 style: TextStyle(
                     color: context.textPrimary,
                     fontSize: 12,
-                    fontWeight: FontWeight.w500),
+                    fontWeight: FontWeight.w500,
+                    height: 1.2),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis),
             if (item.year != null)
               Text(item.year.toString(),
                   style: TextStyle(
                       color: context.textPrimary.withValues(alpha: 0.6),
-                      fontSize: subtitleFontSize),
+                      fontSize: subtitleFontSize,
+                      height: 1.2),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class LibraryItemsScreen extends ConsumerStatefulWidget {
-  final MediaServer server;
-  final MediaServerService serverService;
-  final MediaItem library;
-
-  const LibraryItemsScreen({
-    super.key,
-    required this.server,
-    required this.serverService,
-    required this.library,
-  });
-
-  @override
-  ConsumerState<LibraryItemsScreen> createState() => _LibraryItemsScreenState();
-}
-
-class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen>
-    with TickerProviderStateMixin {
-  Future<List<MediaItem>>? _itemsFuture;
-  late TabController _tabController;
-  int _currentTab = 0;
-
-  Color _bgColor = const Color(0xFFE8D5C4);
-  Color _textColor = Colors.black;
-  bool _colorsExtracted = false;
-
-  String _sortBy = '加入日期';
-  bool _sortDescending = true;
-  bool _showSortMenu = false;
-  bool _isGridView = true;
-  bool _isPortraitCard = true;
-  String? _activeGenreFilter; // 类型过滤（点击类型卡进入）
-  String? _activeFolderFilter; // 文件夹过滤（点击文件夹卡进入）
-
-  List<String> get _tabs => [widget.library.title, '类型', '文件夹'];
-  final List<String> _sortOptions = [
-    '加入日期',
-    '标题',
-    '公众评分',
-    '影评人评分',
-    '出品年份',
-    '首映日期',
-    '官方评级',
-    '播放日期'
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: _tabs.length, vsync: this);
-    _tabController.addListener(() {
-      setState(() => _currentTab = _tabController.index);
-    });
-    _loadItems();
-  }
-
-  Future<void> _extractDominantColor(String imageUrl) async {
-    if (_colorsExtracted || imageUrl.isEmpty) return;
-    try {
-      final color = await _calculateDominantColor(imageUrl);
-      if (mounted && color != null) {
-        setState(() {
-          _bgColor = _lightenColor(color, 0.75);
-          _textColor =
-              _isColorLight(_bgColor) ? Colors.black : context.textPrimary;
-          _colorsExtracted = true;
-        });
-      }
-    } catch (_) {}
-  }
-
-  Future<Color?> _calculateDominantColor(String imageUrl) async {
-    try {
-      final provider = CachedNetworkImageProvider(imageUrl);
-      final completer = Completer<ImageInfo>();
-      final stream = provider.resolve(ImageConfiguration.empty);
-      stream.addListener(ImageStreamListener((info, _) {
-        if (!completer.isCompleted) completer.complete(info);
-      }));
-      final imageInfo = await completer.future.timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => throw 'timeout',
-      );
-      final byteData =
-          await imageInfo.image.toByteData(format: ImageByteFormat.rawRgba);
-      if (byteData == null) return null;
-
-      final bytes = byteData.buffer.asUint8List();
-      final pixelCount = imageInfo.image.width * imageInfo.image.height;
-      final step = pixelCount ~/ 100;
-
-      int r = 0, g = 0, b = 0, count = 0;
-      for (int i = 0; i < bytes.length; i += 4 * step) {
-        if (i + 2 < bytes.length) {
-          r += bytes[i];
-          g += bytes[i + 1];
-          b += bytes[i + 2];
-          count++;
-        }
-      }
-      if (count == 0) return null;
-      return Color.fromRGBO(r ~/ count, g ~/ count, b ~/ count, 1);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Color _lightenColor(Color color, double amount) {
-    final r = ((color.r * 255 + (255 - color.r * 255) * amount).round())
-        .clamp(0, 255);
-    final g = ((color.g * 255 + (255 - color.g * 255) * amount).round())
-        .clamp(0, 255);
-    final b = ((color.b * 255 + (255 - color.b * 255) * amount).round())
-        .clamp(0, 255);
-    return Color.fromRGBO(r, g, b, 1);
-  }
-
-  bool _isColorLight(Color color) {
-    final luminance = (0.299 * color.r + 0.587 * color.g + 0.114 * color.b);
-    return luminance > 0.5;
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  void _loadItems() {
-    // 分页拉全量：单页默认 50 条，大库只取第一页会"少"（实测 Emby 166 / Jellyfin 173）
-    // boxsets 库需显式带上 BoxSet 类型（Jellyfin 用 Movie,Series 查合集返回 0）
-    _itemsFuture = widget.serverService.getAllLibraryItems(
-      widget.library.id,
-      includeBoxSets: widget.library.collectionType == 'boxsets',
-    );
-  }
-
-  void _openDetail(MediaItem item) {
-    // 合集（BoxSet）：点击后展示合集内的影视列表，而不是合集详情页
-    if (item.isBoxSet) {
-      Navigator.push(
-        context,
-        AppAnimations.buildPageRoute(
-          page: LibraryItemsScreen(
-            server: widget.server,
-            serverService: widget.serverService,
-            library: item,
-          ),
-          type: PageTransitionType.fadeSlide,
-        ),
-      );
-      return;
-    }
-    Navigator.push(
-      context,
-      AppAnimations.buildPageRoute(
-        page: DetailScreen(item: item, service: widget.serverService),
-        // fadeSlide：内容轻微上滑+淡入，配合 Hero 海报飞行（AfuseKt 共享元素转场）
-        type: PageTransitionType.fadeSlide,
-      ),
-    );
-  }
-
-  List<MediaItem> _sortItems(List<MediaItem> items) {
-    var sorted = List<MediaItem>.from(items);
-    switch (_sortBy) {
-      case '标题':
-        sorted.sort((a, b) => a.title.compareTo(b.title));
-        break;
-      case '公众评分':
-      case '影评人评分':
-        sorted.sort((a, b) => (b.rating ?? 0).compareTo(a.rating ?? 0));
-        break;
-      case '出品年份':
-      case '首映日期':
-        sorted.sort((a, b) => (b.year ?? 0).compareTo(a.year ?? 0));
-        break;
-      default:
-        break;
-    }
-    if (!_sortDescending && _sortBy != '标题') {
-      sorted = sorted.reversed.toList();
-    }
-    if (_sortDescending && _sortBy == '标题') {
-      sorted = sorted.reversed.toList();
-    }
-    return sorted;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _bgColor,
-      body: Stack(
-        children: [
-          CustomScrollView(
-            slivers: [
-              SliverToBoxAdapter(
-                child:
-                    SizedBox(height: MediaQuery.of(context).padding.top + 60),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: _buildTabBar(),
-                ),
-              ),
-              if (_activeGenreFilter != null || _activeFolderFilter != null)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-                    child: _buildFilterBar(),
-                  ),
-                ),
-              const SliverToBoxAdapter(child: SizedBox(height: 20)),
-              FutureBuilder<List<MediaItem>>(
-                future: _itemsFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return _buildLoadingGrid();
-                  }
-                  if (snapshot.hasError || snapshot.data == null) {
-                    return _buildErrorState();
-                  }
-                  final items = _sortItems(snapshot.data!);
-                  if (items.isEmpty) {
-                    return _buildEmptyState();
-                  }
-                  if (!_colorsExtracted && items.first.posterUrl.isNotEmpty) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      _extractDominantColor(items.first.posterUrl);
-                    });
-                  }
-                  return _buildContent(items);
-                },
-              ),
-              const SliverToBoxAdapter(child: SizedBox(height: 100)),
-            ],
-          ),
-          _buildTopBar(),
-          _buildSortMenu(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTopBar() {
-    return Positioned(
-      top: 0,
-      left: 0,
-      right: 0,
-      child: Container(
-        padding: EdgeInsets.only(
-          top: MediaQuery.of(context).padding.top + 8,
-          left: 12,
-          right: 12,
-          bottom: 8,
-        ),
-        child: Row(
-          children: [
-            IconButton(
-              onPressed: () => Navigator.pop(context),
-              icon: Icon(Icons.arrow_back_rounded, color: _textColor, size: 24),
-            ),
-            Expanded(
-              child: Text(
-                widget.library.title,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: _textColor,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            IconButton(
-              onPressed: () => Navigator.push(
-                  context, MaterialPageRoute(builder: (_) => SearchScreen())),
-              icon: Icon(Icons.search_rounded, color: _textColor, size: 24),
-            ),
-            IconButton(
-              onPressed: () => setState(() => _showSortMenu = !_showSortMenu),
-              icon: Icon(Icons.menu_rounded, color: _textColor, size: 24),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTabBar() {
-    return Container(
-      height: 44,
-      decoration: BoxDecoration(
-        color: _textColor.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: TabBar(
-        controller: _tabController,
-        indicator: BoxDecoration(
-          color: context.cardColor,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: context.cardColor),
-        ),
-        indicatorSize: TabBarIndicatorSize.tab,
-        dividerColor: Colors.transparent,
-        labelColor: context.textPrimary,
-        unselectedLabelColor: _textColor.withValues(alpha: 0.5),
-        labelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-        unselectedLabelStyle:
-            const TextStyle(fontSize: 14, fontWeight: FontWeight.normal),
-        tabs: _tabs.map((t) => Tab(text: t)).toList(),
-      ),
-    );
-  }
-
-  Widget _buildContent(List<MediaItem> items) {
-    if (_currentTab == 0) {
-      return _buildMovieGrid(_applyFilter(items));
-    } else if (_currentTab == 1) {
-      return _buildGenreGrid(items);
-    } else {
-      return _buildFolderGrid(items);
-    }
-  }
-
-  /// 应用类型/文件夹过滤（点击类型卡/文件夹卡进入过滤视图）
-  List<MediaItem> _applyFilter(List<MediaItem> items) {
-    if (_activeGenreFilter != null) {
-      return items.where((i) => i.genres.contains(_activeGenreFilter)).toList();
-    }
-    if (_activeFolderFilter != null) {
-      return items
-          .where((i) => _getParentFolderName(i.filePath) == _activeFolderFilter)
-          .toList();
-    }
-    return items;
-  }
-
-  /// 过滤激活时的返回栏
-  Widget _buildFilterBar() {
-    final label = _activeGenreFilter ?? _activeFolderFilter ?? '';
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: AppTheme.primary.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppTheme.primary.withValues(alpha: 0.4)),
-          ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.filter_alt_rounded, color: AppTheme.primary, size: 14),
-            const SizedBox(width: 4),
-            Text(label,
-                style: const TextStyle(
-                    color: AppTheme.primary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600)),
-            const SizedBox(width: 4),
-            GestureDetector(
-              onTap: () => setState(() {
-                _activeGenreFilter = null;
-                _activeFolderFilter = null;
-                _currentTab = 0;
-                _tabController.index = 0;
-              }),
-              child: const Icon(Icons.close_rounded,
-                  color: AppTheme.primary, size: 16),
-            ),
-          ]),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMovieGrid(List<MediaItem> items) {
-    final crossAxisCount = _isPortraitCard ? 3 : 2;
-    final cardAspectRatio = _isPortraitCard ? 2 / 3 : 16 / 10;
-
-    return SliverPadding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      sliver: SliverGrid(
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: crossAxisCount,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: cardAspectRatio,
-        ),
-        delegate: SliverChildBuilderDelegate(
-          (context, index) {
-            final item = items[index];
-            // 入场动画只给首屏卡片：长列表快速下滑时全局 index 可达数百，
-            // delay=20ms×index 会累积到数秒，滚动进入的卡片会长时间空白
-            Widget card = _SenPlayerCard(
-              item: item,
-              isPortrait: _isPortraitCard,
-              textColor: _textColor,
-              onTap: () => _openDetail(item),
-            );
-            if (index < 24) {
-              card = card
-                  .animate()
-                  .fadeIn(delay: Duration(milliseconds: 20 * index));
-            }
-            return card;
-          },
-          childCount: items.length,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGenreGrid(List<MediaItem> items) {
-    final genres = <String, List<MediaItem>>{};
-    for (final item in items) {
-      for (final genre in item.genres) {
-        genres.putIfAbsent(genre, () => []);
-        genres[genre]!.add(item);
-      }
-    }
-    final genreList = genres.entries.toList();
-
-    return SliverPadding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      sliver: SliverGrid(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: 2 / 3,
-        ),
-        delegate: SliverChildBuilderDelegate(
-          (context, index) {
-            final entry = genreList[index];
-            final firstItem = entry.value.isNotEmpty ? entry.value.first : null;
-            Widget card = _GenreCard(
-              genre: entry.key,
-              count: entry.value.length,
-              posterUrl: firstItem?.posterUrl ?? '',
-              textColor: _textColor,
-              onTap: () => setState(() {
-                _activeGenreFilter = entry.key;
-                _activeFolderFilter = null;
-                _currentTab = 0;
-                _tabController.index = 0;
-              }),
-            );
-            // 同网格：fadeIn delay 随 index 线性放大，快速滑动时只对首屏动画
-            if (index < 24) {
-              card = card
-                  .animate()
-                  .fadeIn(delay: Duration(milliseconds: 20 * index));
-            }
-            return card;
-          },
-          childCount: genreList.length,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFolderGrid(List<MediaItem> items) {
-    final folders = <String, List<MediaItem>>{};
-    for (final item in items) {
-      final folderName = _getParentFolderName(item.filePath);
-      if (folderName != null && folderName.isNotEmpty) {
-        folders.putIfAbsent(folderName, () => []);
-        folders[folderName]!.add(item);
-      }
-    }
-    final folderList = folders.entries.toList();
-
-    return SliverPadding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      sliver: SliverGrid(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: 2 / 3,
-        ),
-        delegate: SliverChildBuilderDelegate(
-          (context, index) {
-            final entry = folderList[index];
-            final firstItem = entry.value.isNotEmpty ? entry.value.first : null;
-            Widget card = _FolderCard(
-              folderName: entry.key,
-              count: entry.value.length,
-              posterUrl: firstItem?.posterUrl ?? '',
-              textColor: _textColor,
-              onTap: () => setState(() {
-                _activeFolderFilter = entry.key;
-                _activeGenreFilter = null;
-                _currentTab = 0;
-                _tabController.index = 0;
-              }),
-            );
-            // 同网格：fadeIn delay 随 index 线性放大，快速滑动时只对首屏动画
-            if (index < 24) {
-              card = card
-                  .animate()
-                  .fadeIn(delay: Duration(milliseconds: 20 * index));
-            }
-            return card;
-          },
-          childCount: folderList.length,
-        ),
-      ),
-    );
-  }
-
-  String? _getParentFolderName(String? filePath) {
-    if (filePath == null || filePath.isEmpty) return null;
-    final parts = filePath.split(RegExp(r'[\\/]'));
-    if (parts.length < 2) return null;
-    for (int i = parts.length - 2; i >= 0; i--) {
-      if (parts[i].isNotEmpty) return parts[i];
-    }
-    return null;
-  }
-
-  Widget _buildLoadingGrid() {
-    return SliverPadding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      sliver: SliverGrid(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: 2 / 3,
-        ),
-        delegate: SliverChildBuilderDelegate(
-          (context, index) => const SkeletonBox(radius: 16),
-          childCount: 12,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildErrorState() {
-    return SliverToBoxAdapter(
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(height: 80),
-            Icon(Icons.error_outline,
-                color: _textColor.withValues(alpha: 0.5), size: 48),
-            SizedBox(height: 16),
-            Text('加载失败', style: TextStyle(color: _textColor, fontSize: 16)),
-            SizedBox(height: 16),
-            TextButton(
-              onPressed: () => setState(() => _loadItems()),
-              child: Text('重试', style: TextStyle(color: AppTheme.primary)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return SliverToBoxAdapter(
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(height: 80),
-            Icon(Icons.movie_rounded,
-                color: _textColor.withValues(alpha: 0.3), size: 48),
-            SizedBox(height: 16),
-            Text('暂无内容',
-                style: TextStyle(
-                    color: _textColor.withValues(alpha: 0.6), fontSize: 16)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSortMenu() {
-    return Positioned(
-      top: MediaQuery.of(context).padding.top + 56,
-      right: 12,
-      child: _AnimatedMenuPanel(
-        visible: _showSortMenu,
-        child: GestureDetector(
-          onTap: () => setState(() => _showSortMenu = false),
-          behavior: HitTestBehavior.translucent,
-          child: Container(
-            width: 260,
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            decoration: BoxDecoration(
-              color: context.cardColor,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.15),
-                  blurRadius: 20,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                  child: Text(
-                    '排序顺序',
-                    style: TextStyle(
-                        color: context.textSecondary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500),
-                  ),
-                ),
-                ..._sortOptions.map((option) => _SortMenuItem(
-                      label: option,
-                      isSelected: _sortBy == option,
-                      isDescending: _sortDescending,
-                      onTap: () {
-                        if (_sortBy == option) {
-                          setState(() => _sortDescending = !_sortDescending);
-                        } else {
-                          setState(() {
-                            _sortBy = option;
-                            _sortDescending = true;
-                          });
-                        }
-                      },
-                    )),
-                Container(
-                  margin:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  height: 1,
-                  color: context.textSecondary.withValues(alpha: 0.2),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                  child: Text(
-                    '展示样式',
-                    style: TextStyle(
-                        color: context.textSecondary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500),
-                  ),
-                ),
-                _SortMenuItem(
-                  label: '网格视图',
-                  isSelected: _isGridView,
-                  showCheck: true,
-                  onTap: () => setState(() => _isGridView = true),
-                ),
-                _SortMenuItem(
-                  label: '列表视图',
-                  isSelected: !_isGridView,
-                  showCheck: true,
-                  onTap: () => setState(() => _isGridView = false),
-                ),
-                Container(
-                  margin:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  height: 1,
-                  color: context.textSecondary.withValues(alpha: 0.2),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                  child: Text(
-                    '卡片样式',
-                    style: TextStyle(
-                        color: context.textSecondary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500),
-                  ),
-                ),
-                _SortMenuItem(
-                  label: '竖屏',
-                  isSelected: _isPortraitCard,
-                  showCheck: true,
-                  onTap: () => setState(() => _isPortraitCard = true),
-                ),
-                _SortMenuItem(
-                  label: '横屏',
-                  isSelected: !_isPortraitCard,
-                  showCheck: true,
-                  onTap: () => setState(() => _isPortraitCard = false),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SenPlayerCard extends StatelessWidget {
-  final MediaItem item;
-  final bool isPortrait;
-  final Color textColor;
-  final VoidCallback onTap;
-
-  const _SenPlayerCard({
-    required this.item,
-    required this.isPortrait,
-    required this.textColor,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ScaleCard(
-      onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (item.posterUrl.isNotEmpty)
-                    CachedNetworkImage(
-                      imageUrl: item.posterUrl,
-                      fit: BoxFit.cover,
-                      memCacheWidth: 300,
-                      // 占位用主题骨架色（浅色模式为可见的浅灰块，深色模式为暗灰），
-                      // 而不是半透明灰——浅色背景下 30% 透明灰≈白，看起来像空白
-                      placeholder: (_, __) => Container(
-                        color: context.textPrimary.withValues(alpha: 0.08),
-                        child: Center(
-                          child: Icon(
-                            Icons.movie,
-                            color: context.textPrimary.withValues(alpha: 0.4),
-                          ),
-                        ),
-                      ),
-                      errorWidget: (_, __, ___) => Container(
-                        color: context.textPrimary.withValues(alpha: 0.08),
-                        child: Center(
-                          child: Icon(
-                            Icons.movie,
-                            color: context.textPrimary.withValues(alpha: 0.4),
-                          ),
-                        ),
-                      ),
-                    )
-                  else
-                    Container(
-                      color: context.textPrimary.withValues(alpha: 0.08),
-                      child: Center(
-                        child: Icon(
-                          Icons.movie,
-                          color: context.textPrimary.withValues(alpha: 0.4),
-                        ),
-                      ),
-                    ),
-                  if (item.rating != null && item.rating! > 0)
-                    Positioned(
-                      top: 8,
-                      left: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.7),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              item.rating!.toStringAsFixed(1),
-                              style: const TextStyle(
-                                color: Color(0xFFFFC107),
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  if (item.isWatched == true)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        width: 20,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          color: Colors.green,
-                          shape: BoxShape.circle,
-                          border:
-                              Border.all(color: context.textPrimary, width: 2),
-                        ),
-                        child: Icon(Icons.check,
-                            color: context.textPrimary, size: 12),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          SizedBox(height: 6),
-          Text(
-            item.title,
-            style: TextStyle(
-                color: textColor, fontSize: 13, fontWeight: FontWeight.w500),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          if (item.year != null) ...[
-            SizedBox(height: 2),
-            Text(
-              '${item.year}',
-              style: TextStyle(
-                  color: textColor.withValues(alpha: 0.5), fontSize: 11),
-              maxLines: 1,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _GenreCard extends StatelessWidget {
-  final String genre;
-  final int count;
-  final String posterUrl;
-  final Color textColor;
-  final VoidCallback onTap;
-
-  const _GenreCard({
-    required this.genre,
-    required this.count,
-    required this.posterUrl,
-    required this.textColor,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ScaleCard(
-      onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (posterUrl.isNotEmpty)
-                    CachedNetworkImage(
-                      imageUrl: posterUrl,
-                      fit: BoxFit.cover,
-                      memCacheWidth: 300,
-                      placeholder: (_, __) =>
-                          Container(color: Colors.grey.withValues(alpha: 0.3)),
-                      errorWidget: (_, __, ___) =>
-                          Container(color: Colors.grey.withValues(alpha: 0.3)),
-                    )
-                  else
-                    Container(color: Colors.grey.withValues(alpha: 0.3)),
-                  Positioned.fill(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.6),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 12,
-                    left: 12,
-                    right: 12,
-                    child: Text(
-                      genre,
-                      style: TextStyle(
-                        color: context.textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FolderCard extends StatelessWidget {
-  final String folderName;
-  final int count;
-  final String posterUrl;
-  final Color textColor;
-  final VoidCallback onTap;
-
-  const _FolderCard({
-    required this.folderName,
-    required this.count,
-    required this.posterUrl,
-    required this.textColor,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ScaleCard(
-      onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (posterUrl.isNotEmpty)
-                    CachedNetworkImage(
-                      imageUrl: posterUrl,
-                      fit: BoxFit.cover,
-                      memCacheWidth: 300,
-                      placeholder: (_, __) =>
-                          Container(color: Colors.grey.withValues(alpha: 0.3)),
-                      errorWidget: (_, __, ___) =>
-                          Container(color: Colors.grey.withValues(alpha: 0.3)),
-                    )
-                  else
-                    Container(color: Colors.grey.withValues(alpha: 0.3)),
-                  Positioned(
-                    bottom: 8,
-                    right: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.6),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '$count 部',
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w500),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          SizedBox(height: 6),
-          Text(
-            folderName,
-            style: TextStyle(
-                color: textColor, fontSize: 13, fontWeight: FontWeight.w500),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 排序面板弹层：随 visible 双向播放淡入+缩放动画（打开/关闭都有过渡）。
-/// 始终挂载在树上，隐藏时用 IgnorePointer 屏蔽触摸。
-class _AnimatedMenuPanel extends StatefulWidget {
-  final bool visible;
-  final Widget child;
-
-  const _AnimatedMenuPanel({required this.visible, required this.child});
-
-  @override
-  State<_AnimatedMenuPanel> createState() => _AnimatedMenuPanelState();
-}
-
-class _AnimatedMenuPanelState extends State<_AnimatedMenuPanel> {
-  late bool _visible;
-
-  @override
-  void initState() {
-    super.initState();
-    _visible = widget.visible;
-    if (widget.visible) {
-      // 首次以隐藏态挂载，下一帧再显示以触发入场动画
-      _visible = false;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && widget.visible) setState(() => _visible = true);
-      });
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant _AnimatedMenuPanel oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.visible != _visible) {
-      setState(() => _visible = widget.visible);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      ignoring: !_visible,
-      child: AnimatedScale(
-        scale: _visible ? 1.0 : 0.85,
-        alignment: Alignment.topRight,
-        duration: AppAnimations.normal,
-        curve: AppAnimations.easeOut,
-        child: AnimatedOpacity(
-          opacity: _visible ? 1.0 : 0.0,
-          duration: AppAnimations.normal,
-          curve: AppAnimations.easeOut,
-          child: widget.child,
-        ),
-      ),
-    );
-  }
-}
-
-class _SortMenuItem extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final bool isDescending;
-  final bool showCheck;
-  final VoidCallback onTap;
-
-  const _SortMenuItem({
-    required this.label,
-    required this.isSelected,
-    this.isDescending = true,
-    this.showCheck = false,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: isSelected ? AppTheme.primary : context.textPrimary,
-                  fontSize: 14,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                ),
-              ),
-            ),
-            if (isSelected && !showCheck)
-              Icon(
-                isDescending
-                    ? Icons.arrow_downward_rounded
-                    : Icons.arrow_upward_rounded,
-                color: AppTheme.primary,
-                size: 18,
-              ),
-            if (isSelected && showCheck)
-              Icon(Icons.check_rounded, color: AppTheme.primary, size: 20),
           ],
         ),
       ),
