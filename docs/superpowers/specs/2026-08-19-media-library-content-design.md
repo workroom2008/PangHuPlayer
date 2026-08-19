@@ -90,6 +90,7 @@ enum MediaLibrarySortField {
 class MediaLibraryFilter {
   final String? category;
   final String? genre;
+  final int? year;
   final int? decade;
   final bool? watched;
   final String? folder;
@@ -133,4 +134,3 @@ class MediaLibraryQuery {
 HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= NO_PROXY=127.0.0.1,localhost flutter test
 flutter analyze
 ```
-

@@ -12,6 +12,7 @@ enum MediaLibrarySortField {
 class MediaLibraryFilter {
   final String? category;
   final String? genre;
+  final int? year;
   final int? decade;
   final bool? watched;
   final String? folder;
@@ -19,6 +20,7 @@ class MediaLibraryFilter {
   const MediaLibraryFilter({
     this.category,
     this.genre,
+    this.year,
     this.decade,
     this.watched,
     this.folder,
@@ -27,6 +29,7 @@ class MediaLibraryFilter {
   MediaLibraryFilter copyWith({
     Object? category = _unset,
     Object? genre = _unset,
+    Object? year = _unset,
     Object? decade = _unset,
     Object? watched = _unset,
     Object? folder = _unset,
@@ -34,6 +37,7 @@ class MediaLibraryFilter {
     return MediaLibraryFilter(
       category: identical(category, _unset) ? this.category : category as String?,
       genre: identical(genre, _unset) ? this.genre : genre as String?,
+      year: identical(year, _unset) ? this.year : year as int?,
       decade: identical(decade, _unset) ? this.decade : decade as int?,
       watched: identical(watched, _unset) ? this.watched : watched as bool?,
       folder: identical(folder, _unset) ? this.folder : folder as String?,
@@ -57,6 +61,7 @@ class MediaLibraryQuery {
           (filter.category == '电视节目' && item.type != MediaType.movie);
       final genreMatches =
           filter.genre == null || item.genres.contains(filter.genre);
+      final yearMatches = filter.year == null || item.year == filter.year;
       final decadeMatches = filter.decade == null ||
           (item.year != null &&
               item.year! >= filter.decade! &&
@@ -67,6 +72,7 @@ class MediaLibraryQuery {
           filter.folder == null || _folderFor(item) == filter.folder;
       return categoryMatches &&
           genreMatches &&
+          yearMatches &&
           decadeMatches &&
           watchedMatches &&
           folderMatches;

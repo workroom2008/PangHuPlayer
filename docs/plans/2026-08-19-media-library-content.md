@@ -30,7 +30,7 @@
 
 **Interfaces:**
 - Consumes: `MediaItem` from `lib/models/media_models.dart`。
-- Produces: `MediaLibrarySortField`、`MediaLibraryFilter`、`MediaLibraryQuery.apply` 和 `MediaLibraryQuery.folders`，供共享页面和测试直接调用。
+- Produces: `MediaLibrarySortField`、包含 `year` 精确年份字段的 `MediaLibraryFilter`、`MediaLibraryQuery.apply` 和 `MediaLibraryQuery.folders`，供共享页面和测试直接调用。
 
 - [x] **Step 1: 写失败测试**
 
@@ -144,6 +144,7 @@ enum MediaLibrarySortField { addedDate, title, rating, year, releaseDate, watche
 class MediaLibraryFilter {
   final String? category;
   final String? genre;
+  final int? year;
   final int? decade;
   final bool? watched;
   final String? folder;
@@ -151,6 +152,7 @@ class MediaLibraryFilter {
   const MediaLibraryFilter({
     this.category,
     this.genre,
+    this.year,
     this.decade,
     this.watched,
     this.folder,
@@ -159,12 +161,14 @@ class MediaLibraryFilter {
   MediaLibraryFilter copyWith({
     Object? category = _unset,
     Object? genre = _unset,
+    Object? year = _unset,
     Object? decade = _unset,
     Object? watched = _unset,
     Object? folder = _unset,
   }) => MediaLibraryFilter(
         category: identical(category, _unset) ? this.category : category as String?,
         genre: identical(genre, _unset) ? this.genre : genre as String?,
+        year: identical(year, _unset) ? this.year : year as int?,
         decade: identical(decade, _unset) ? this.decade : decade as int?,
         watched: identical(watched, _unset) ? this.watched : watched as bool?,
         folder: identical(folder, _unset) ? this.folder : folder as String?,

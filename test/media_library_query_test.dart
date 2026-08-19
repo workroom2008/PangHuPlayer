@@ -102,4 +102,15 @@ void main() {
   test('文件夹列表提取父目录并包含未分类媒体', () {
     expect(MediaLibraryQuery.folders(items), ['Beta', 'Alpha', '未分类']);
   });
+
+  test('年份条件可以精确筛选当前年份', () {
+    final result = MediaLibraryQuery.apply(
+      items: items,
+      sortField: MediaLibrarySortField.addedDate,
+      descending: true,
+      filter: const MediaLibraryFilter(year: 2024),
+    );
+
+    expect(result.map((i) => i.id), ['a']);
+  });
 }
