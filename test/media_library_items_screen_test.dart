@@ -119,6 +119,13 @@ void main() {
     expect(find.byKey(const ValueKey('media-grid-6-columns')), findsOneWidget);
   });
 
+  testWidgets('加载完成后工具栏显示真实结果数量', (tester) async {
+    await tester.pumpWidget(buildScreen());
+    await tester.pumpAndSettle();
+
+    expect(find.text('7'), findsOneWidget);
+  });
+
   testWidgets('筛选面板选择文件夹后只显示该文件夹媒体', (tester) async {
     await tester.pumpWidget(buildScreen());
     await tester.pumpAndSettle();

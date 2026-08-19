@@ -38,7 +38,12 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
   @override
   void initState() {
     super.initState();
-    _itemsFuture = _fetchItems();
+    _itemsFuture = _fetchItems().then((items) {
+      if (mounted) {
+        setState(() => _allItems = items);
+      }
+      return items;
+    });
   }
 
   Future<List<MediaItem>> _fetchItems() {
@@ -49,7 +54,15 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
   }
 
   void _reloadItems() {
-    setState(() => _itemsFuture = _fetchItems());
+    setState(() {
+      _allItems = const [];
+      _itemsFuture = _fetchItems().then((items) {
+        if (mounted) {
+          setState(() => _allItems = items);
+        }
+        return items;
+      });
+    });
   }
 
   List<MediaItem> _visibleItems() {
@@ -83,7 +96,6 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
                   return _buildErrorState();
                 }
 
-                _allItems = snapshot.data!;
                 final items = _visibleItems();
                 if (items.isEmpty) {
                   return _allItems.isEmpty
@@ -295,41 +307,46 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
   Future<void> _showSortPanel() async {
     await showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: context.surfaceColor,
       builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _panelTitle('排序'),
-            ...MediaLibrarySortField.values.map(
-              (field) => _choiceTile(
-                label: _sortFieldLabel(field),
-                selected: field == _sortField,
-                trailing: field == _sortField
-                    ? Icon(
-                        _descending
-                            ? Icons.arrow_downward_rounded
-                            : Icons.arrow_upward_rounded,
-                        color: AppTheme.primary,
-                        size: 18,
-                      )
-                    : null,
-                onTap: () {
-                  setState(() {
-                    if (_sortField == field) {
-                      _descending = !_descending;
-                    } else {
-                      _sortField = field;
-                      _descending = true;
-                    }
-                  });
-                  Navigator.pop(context);
-                },
-              ),
+        child: SizedBox(
+          height: MediaQuery.sizeOf(context).height * 0.78,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _panelTitle('排序'),
+                ...MediaLibrarySortField.values.map(
+                  (field) => _choiceTile(
+                    label: _sortFieldLabel(field),
+                    selected: field == _sortField,
+                    trailing: field == _sortField
+                        ? Icon(
+                            _descending
+                                ? Icons.arrow_downward_rounded
+                                : Icons.arrow_upward_rounded,
+                            color: AppTheme.primary,
+                            size: 18,
+                          )
+                        : null,
+                    onTap: () {
+                      setState(() {
+                        if (_sortField == field) {
+                          _descending = !_descending;
+                        } else {
+                          _sortField = field;
+                          _descending = true;
+                        }
+                      });
+                      Navigator.pop(context);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
             ),
-            const SizedBox(height: 8),
-          ],
+          ),
         ),
       ),
     );

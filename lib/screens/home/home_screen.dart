@@ -10,7 +10,6 @@ import '../../providers/app_providers.dart';
 import '../../providers/media_library_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../models/media_models.dart';
-import '../../services/media_server_service.dart';
 import '../../utils/screen_adapter.dart';
 import '../../utils/animation_config.dart';
 import '../../widgets/animated_card.dart';

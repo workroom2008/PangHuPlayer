@@ -503,7 +503,7 @@ git commit -m "refactor: 统一两个入口的媒体库内容页"
 - Consumes: Task 1-3 的实现和测试。
 - Produces: 全量测试和静态分析的可复现结果。
 
-- [ ] **Step 1: 运行全量 Flutter 测试**
+- [x] **Step 1: 运行全量 Flutter 测试**
 
 运行：
 
@@ -511,9 +511,9 @@ git commit -m "refactor: 统一两个入口的媒体库内容页"
 HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= NO_PROXY=127.0.0.1,localhost flutter test
 ```
 
-期望：退出码为 0，所有测试通过；输出中不得有新增 overflow、异常或未处理的测试错误。
+实际：退出码为 0，26 个测试通过；输出中没有新增 overflow、异常或未处理的测试错误。
 
-- [ ] **Step 2: 运行静态分析**
+- [x] **Step 2: 运行静态分析**
 
 运行：
 
@@ -521,9 +521,9 @@ HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= NO_PROXY=127.0.0.1,localhost flutter test
 HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= NO_PROXY=127.0.0.1,localhost flutter analyze
 ```
 
-期望：无 error；既有 info 级 lint 可以与基线一致，但不得引入新的 error。
+实际：`flutter analyze` 退出码为 1，报告 611 条存量 warning/info，未发现 `error`；本次改动文件的定向分析同样无 error。仓库现有分析问题未在本任务范围内处理。
 
-- [ ] **Step 3: 检查差异和工作区边界**
+- [x] **Step 3: 检查差异和工作区边界**
 
 运行：
 
@@ -533,9 +533,9 @@ git status --short
 git diff --stat HEAD~3..HEAD
 ```
 
-确认只包含本功能的共享页面、查询逻辑、两个入口迁移、测试和计划文件，不修改用户已有的无关未提交文件。
+实际：`git diff --check` 无空白错误；本次提交只包含共享页面、查询逻辑、两个入口迁移、测试和计划文件，用户已有的无关未提交文件保持不动。
 
-- [ ] **Step 4: 提交计划验证记录**
+- [x] **Step 4: 提交计划验证记录**
 
 ```bash
 git add docs/plans/2026-08-19-media-library-content.md
