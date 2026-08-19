@@ -267,7 +267,7 @@ git commit -m "feat: 增加媒体库排序筛选查询逻辑"
 - Consumes: `MediaLibraryQuery.apply`、`MediaLibraryQuery.folders`、`MediaServerService.getAllLibraryItems`。
 - Produces: 公共 `LibraryItemsScreen`，构造函数签名为 `const LibraryItemsScreen({super.key, required MediaServer server, required MediaServerService serverService, required MediaItem library})`。
 
-- [ ] **Step 1: 写失败 Widget 测试**
+- [x] **Step 1: 写失败 Widget 测试**
 
 创建 `_FakeMediaService extends EmbyService`，只重写 `getAllLibraryItems`，避免网络调用并复用 `EmbyService` 已有的抽象方法实现：
 
@@ -380,7 +380,7 @@ testWidgets('大字体长标题不产生溢出', (tester) async {
 
 测试通过 `ValueKey('media-grid')`、`ValueKey('media-grid-3-columns')` 和 `ValueKey('media-grid-6-columns')` 验证实际网格委托，不通过实现私有字段验证。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 运行：
 
@@ -390,7 +390,7 @@ HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= NO_PROXY=127.0.0.1,localhost flutter test te
 
 期望：FAIL，原因是共享页面文件和 `LibraryItemsScreen` 尚不存在。
 
-- [ ] **Step 3: 写最小实现**
+- [x] **Step 3: 写最小实现**
 
 创建共享页面并遵守以下实现边界：
 
@@ -403,7 +403,7 @@ HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= NO_PROXY=127.0.0.1,localhost flutter test te
 7. 海报卡片使用 `Hero(tag: 'media_${item.id}_poster')`、`ServerImage`、评分和观看标记；标题最多两行，年份最多一行；普通媒体调用 `DetailScreen`，合集递归 push 共享 `LibraryItemsScreen`。
 8. 过滤无结果时显示“没有符合条件的内容”和“清除筛选”；加载错误沿用重试按钮；原始空列表显示“暂无内容”。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 运行：
 
@@ -413,7 +413,7 @@ HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= NO_PROXY=127.0.0.1,localhost flutter test te
 
 期望 4 个 Widget 测试 PASS；若大字体测试出现 overflow，只调整 `mainAxisExtent` 计算或文字行高，不放宽断言。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add test/media_library_items_screen_test.dart lib/screens/media_library/media_library_items_screen.dart
