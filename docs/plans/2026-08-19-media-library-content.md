@@ -32,7 +32,7 @@
 - Consumes: `MediaItem` from `lib/models/media_models.dart`。
 - Produces: `MediaLibrarySortField`、`MediaLibraryFilter`、`MediaLibraryQuery.apply` 和 `MediaLibraryQuery.folders`，供共享页面和测试直接调用。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `test/media_library_query_test.dart`，使用真实 `MediaItem` 列表，不使用 mock：
 
@@ -122,7 +122,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 运行：
 
@@ -132,7 +132,7 @@ HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= NO_PROXY=127.0.0.1,localhost flutter test te
 
 期望：FAIL，原因是 `media_library_query.dart` 尚不存在；修正路径或测试语法错误后才可继续。
 
-- [ ] **Step 3: 写最小实现**
+- [x] **Step 3: 写最小实现**
 
 创建 `lib/screens/media_library/media_library_query.dart`，实现以下完整契约：
 
@@ -236,7 +236,7 @@ class MediaLibraryQuery {
 
 将 import 路径按文件实际位置修正为 `../../models/media_models.dart`，并保持 Dart 3 的 record 写法可编译。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 运行同一个测试命令，期望 4 个测试 PASS。随后运行：
 
@@ -246,7 +246,7 @@ HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= NO_PROXY=127.0.0.1,localhost flutter test te
 
 期望无新增错误。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add test/media_library_query_test.dart lib/screens/media_library/media_library_query.dart
