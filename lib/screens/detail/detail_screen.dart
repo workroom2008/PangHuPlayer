@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:palette_generator/palette_generator.dart';
-import '../../services/http_client.dart';
 import '../../providers/app_providers.dart';
 import '../../providers/media_library_provider.dart';
 import '../../theme/app_theme.dart';
@@ -94,7 +92,6 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
   bool _watched = false;
   String? _selectedSubtitleLang; // 详情页预设的默认字幕语言（剧集全部集生效）
   String? _selectedAudioLang; // 详情页预设的默认音频语言
-  bool _expanded = false;
   List<MediaItem> _seasons = [], _episodes = [];
   String? _seasonId;
   bool _inLibrary = false;
@@ -103,8 +100,6 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
   String? _playError; // 播放按钮内联错误态（获取播放链接失败时显示）
   List<MediaItem> _similarItems = []; // 相似推荐（服务端不支持时为空，不显示分区）
   List<Map<String, dynamic>> _credits = [];
-  Color? _dominantColor;
-  String _serverName = '';
   MediaItem? _selectedEpisode;
   bool _heroLanded = false;
   String? _resumeEpisodeId; // 从继续观看卡片传入的剧集ID
@@ -136,15 +131,6 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
           ? (_selectedEpisode ?? _episodes.first)
           : _item;
 
-  /// 季选择药丸的统一宽度（滑动指示器需要固定宽度才能算偏移）
-  static const double _seasonPillWidth = 92;
-
-  /// 当前选中季在列表中的下标（未选中时回退到 0，避免指示器跑到 -1）
-  int get _selectedSeasonIndex {
-    final i = _seasons.indexWhere((s) => s.id == _seasonId);
-    return i < 0 ? 0 : i;
-  }
-
   @override
   void initState() {
     super.initState();
@@ -161,7 +147,6 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
       _checkingLibrary = false;
     }
 
-    _loadServerName();
     _load();
     _checkFavorites();
 
@@ -172,84 +157,11 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
     _watched = widget.item.isWatched == true;
 
     // 异步提取封面颜色（后台执行，不阻塞）
-    _extractCoverColor();
-
     // Hero 飞行（300ms）落地后短暂停留，再触发 backdrop 交叉淡入（450ms ≈
     // route 350ms + Hero 100ms，poster 与 backdrop 交叉更紧凑，不悬空）
     Future.delayed(const Duration(milliseconds: 450), () {
       if (mounted) setState(() => _heroLanded = true);
     });
-  }
-
-  /// 后台提取封面颜色
-  Future<void> _extractCoverColor() async {
-    final imageUrl = _item.backdropUrl?.isNotEmpty == true
-        ? _item.backdropUrl!
-        : _item.posterUrl;
-    if (imageUrl.isEmpty) return;
-
-    try {
-      final palette =
-          await _extractPaletteFromUrl(imageUrl, 100, _svc?.imageHeaders);
-      if (palette == null) return;
-      // 优先选择更鲜艳的色彩作为背景，避免 dominant 颜色过暗导致背景呈黑色
-      final color = palette.darkVibrantColor?.color ??
-          palette.vibrantColor?.color ??
-          palette.lightVibrantColor?.color ??
-          palette.dominantColor?.color;
-      if (color != null && mounted) {
-        setState(() => _dominantColor = color);
-      }
-    } catch (_) {}
-  }
-
-  /// 主 isolate 内执行：下载 → 缩放到 size x size → PaletteGenerator
-  /// 缩放后只解码小图，避免下载/解码原始大图超时
-  static Future<PaletteGenerator?> _extractPaletteFromUrl(
-    String url,
-    int size,
-    Map<String, String>? headers,
-  ) async {
-    try {
-      // 1. HttpClient 下载图片字节（rhttp 优先，Dio 回退）
-      final bytes = await HttpClient.getBytes(
-        url,
-        headers: headers,
-        timeout: const Duration(seconds: 10),
-      );
-      if (bytes.isEmpty) return null;
-
-      // 2. 缩放到 size x size 并重新编码为 PNG
-      final codec = await ui.instantiateImageCodec(
-        bytes,
-        targetWidth: size,
-        targetHeight: size,
-      );
-      final frame = await codec.getNextFrame();
-      final image = frame.image;
-      final pngBytes = await image.toByteData(format: ui.ImageByteFormat.png);
-      image.dispose();
-      if (pngBytes == null) return null;
-
-      // 3. 用 MemoryImage 喂给 PaletteGenerator
-      return await PaletteGenerator.fromImageProvider(
-        MemoryImage(pngBytes.buffer.asUint8List()),
-        size: const Size(128, 128),
-      );
-    } on Exception catch (e) {
-      AppLog.w('Detail', 'download failed: $e');
-      return null;
-    } catch (e) {
-      AppLog.w('Detail', 'palette failed: $e');
-      return null;
-    }
-  }
-
-  void _loadServerName() {
-    final servers = ref.read(mediaServersProvider);
-    _serverName = widget.server?.name ??
-        servers.where((s) => s.isDefault).firstOrNull?.name ??
-        '';
   }
 
   MediaItem? _loadFromCache() {
@@ -608,38 +520,66 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
 
     final ps = ref.read(playerSettingsProvider);
     final burnIn = ps.burnInSubtitle;
-    svc
-        .getStreamUrl(playId,
-            quality: ps.defaultQuality, burnInSubtitle: burnIn)
-        .then((url) {
-      AppLog.i('Detail', 'streamUrl=$url');
-      if (!mounted) return;
-      if (_playError != null) setState(() => _playError = null);
+    // 高端音频编码（TrueHD/DTS/Atmos/EAC3 等）Exo 无法硬解，且当前服务器的
+    // FFmpeg 转码不可用（返回 500）→ 直接走 MPV（内置 FFmpeg 软解，原始流）。
+    // 若服务器转码可用，可改回请求 Emby 音频转码。
+    final needMpv = _needsAudioTranscode(target);
+    (() async {
+      try {
+        final url = await svc.getStreamUrl(playId,
+            quality: ps.defaultQuality, burnInSubtitle: burnIn);
+        if (!mounted) return;
+        if (_playError != null) setState(() => _playError = null);
+        AppLog.i('Detail',
+            'streamUrl=$url${needMpv ? ' [高端音频→MPV 软解]' : ''}');
 
-      // 统一使用 svc.streamHeaders，覆盖 Emby/Jellyfin/FnOS 各自的认证方式
-      final headers = svc.streamHeaders;
+        // 统一使用 svc.streamHeaders，覆盖 Emby/Jellyfin/FnOS 各自的认证方式
+        final headers = svc.streamHeaders;
 
-      context.push('/player/$playId', extra: {
-        'media': target, 'url': url, 'headers': headers,
-        // 续播位置
-        if (target.watchProgress != null && target.duration > 0)
-          'resumePositionMs':
-              (target.watchProgress! * target.duration * 1000).round(),
-        // 新增：传入剧集列表和服务
-        if (_item.type == MediaType.series && _episodes.isNotEmpty)
-          'episodes': _episodes,
-        'service': svc,
-        'server': widget.server ??
-            ref
-                .read(mediaServersProvider)
-                .where((s) => s.isDefault)
-                .firstOrNull,
-      });
-    }).catchError((e) {
-      AppLog.e('Detail', 'getStreamUrl failed', e);
-      // 错误态内联到播放按钮（点击重试），不再只弹一次性 SnackBar
-      if (mounted) setState(() => _playError = '获取播放链接失败');
-    });
+        context.push('/player/$playId', extra: {
+          'media': target, 'url': url, 'headers': headers,
+          if (needMpv) 'forceMpv': true,
+          // 续播位置
+          if (target.watchProgress != null && target.duration > 0)
+            'resumePositionMs':
+                (target.watchProgress! * target.duration * 1000).round(),
+          // 新增：传入剧集列表和服务
+          if (_item.type == MediaType.series && _episodes.isNotEmpty)
+            'episodes': _episodes,
+          'service': svc,
+          'server': widget.server ??
+              ref
+                  .read(mediaServersProvider)
+                  .where((s) => s.isDefault)
+                  .firstOrNull,
+        });
+      } catch (e) {
+        AppLog.e('Detail', 'getStreamUrl failed', e);
+        // 错误态内联到播放按钮（点击重试），不再只弹一次性 SnackBar
+        if (mounted) setState(() => _playError = '获取播放链接失败');
+      }
+    })();
+  }
+
+  /// 音频编码是否为 Exo 无法硬解的高端格式（TrueHD/DTS/Atmos 等）。
+  /// 命中时让 Emby 服务器硬解转码音频（服务器转成 AAC，Exo 可硬解）。
+  bool _needsAudioTranscode(MediaItem m) {
+    final tracks = m.audioTracks ?? const <Map<String, dynamic>>[];
+    for (final t in tracks) {
+      final codec = (t['Codec'] ?? t['codec'] ?? '').toString().toLowerCase();
+      if (codec.isEmpty) continue;
+      if (codec.contains('dts') ||
+          codec.contains('truehd') ||
+          codec.contains('mlp') ||
+          codec.contains('eac3') ||
+          codec.contains('ec-3') ||
+          codec.contains('ac4') ||
+          codec.contains('atmos')) {
+        AppLog.i('Detail', '音频编码 $codec 需 Emby 转码');
+        return true;
+      }
+    }
+    return false;
   }
 
   /// 已观看按钮当前语义：选中剧集时显示该集状态，未选中时显示整体状态
@@ -732,6 +672,13 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
         if (_inLibrary) ...[
           const SizedBox(width: 3),
           roundIcon(
+            icon: Icons.download_outlined,
+            color: Colors.white70,
+            onTap: _downloadItem,
+            tooltip: '下载',
+          ),
+          const SizedBox(width: 3),
+          roundIcon(
             icon: _currentWatched
                 ? Icons.check_circle_rounded
                 : Icons.check_circle_outline_rounded,
@@ -739,16 +686,18 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
             onTap: _markWatched,
             tooltip: _currentWatched ? '取消已观看' : '标记已观看',
           ),
-          const SizedBox(width: 3),
-          roundIcon(
-            icon: Icons.delete_outline_rounded,
-            color: Colors.white70,
-            onTap: _deleteItem,
-            tooltip: '删除',
-          ),
         ],
       ],
     );
+  }
+
+  /// 下载（飞牛详情页操作之一）；Emby 下载接口待接入，先提示
+  void _downloadItem() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('下载功能开发中'),
+      duration: Duration(seconds: 1),
+    ));
   }
 
   Widget _detailTrackControls() {
@@ -805,8 +754,9 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        // 只缩小下拉框宽度，高度保持原样，两个框紧凑并排显示。
-        final itemWidth = ((constraints.maxWidth - 10) / 2).clamp(96.0, 136.0);
+        // 与下方「播放按钮 + 三个小按钮」组等宽对齐（对称），窄屏自动收缩
+        final itemWidth =
+            ((constraints.maxWidth - 10) / 2).clamp(96.0, 148.0);
         return Row(
           key: const ValueKey('detail-track-controls'),
           mainAxisSize: MainAxisSize.min,
@@ -983,49 +933,12 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
     ref.invalidate(favoriteMoviesProvider);
   }
 
-  Future<void> _deleteItem() async {
-    final svc = _svc;
-    final id = _libraryItemId;
-    if (svc == null || id == null || id.isEmpty) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('删除媒体'),
-        content: Text('确定从服务器删除“${_item.title}”吗？此操作不可撤销。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    try {
-      await svc.deleteItem(id);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('媒体已删除')),
-      );
-      Navigator.pop(context);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('删除失败: $e')),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext c) {
     // 详情页背景始终是深色（封面或主色调），所以文字应该用浅色
+    // 详情页背景固定黑灰（不跟随海报主色），保证白字阅读性
     return Scaffold(
-      backgroundColor: _dominantColor ?? Colors.black,
+      backgroundColor: Colors.black,
       body: SingleChildScrollView(
         controller: _scrollController,
         child: _buildContent(c),
@@ -1047,80 +960,133 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
           builder: (context, constraints) {
             // 仅在电视/桌面宽屏隐藏海报；中等平板宽度仍保留海报列。
             final wide = constraints.maxWidth >= 1000;
-            final posterWidth = (wide
-                    ? constraints.maxWidth * 0.28
-                    : constraints.maxWidth * 0.56)
-                .clamp(wide ? 190.0 : 160.0, wide ? 280.0 : 240.0)
-                .toDouble();
+            final screenH = MediaQuery.of(context).size.height;
+            // 海报占屏幕 3/4 高（飞牛布局），竖版 2:3，宽度按比例并 clamp
+            final posterH = (screenH * 0.75).clamp(440.0, 920.0);
+            final posterW = (posterH * 0.66).clamp(180.0, 360.0);
 
-            return Stack(
-              children: [
-                if (backdropUrl.isNotEmpty)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: AnimatedOpacity(
-                        // 参考图保留右侧背景细节，遮罩只负责压住文字区域。
-                        opacity: _heroLanded ? 0.62 : 0.0,
-                        duration: AppAnimations.medium,
-                        curve: AppAnimations.easeOut,
-                        child: ServerImage(
-                          imageUrl: backdropUrl,
-                          headers: _svc?.imageHeaders,
-                          fit: BoxFit.cover,
-                          errorWidget: (_, __, ___) => const SizedBox.shrink(),
+            // 宽屏（桌面/TV）：保留原信息列 + 底部左侧布局
+            if (wide) {
+              return Stack(
+                children: [
+                  if (backdropUrl.isNotEmpty)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: AnimatedOpacity(
+                          opacity: _heroLanded ? 0.62 : 0.0,
+                          duration: AppAnimations.medium,
+                          curve: AppAnimations.easeOut,
+                          child: ServerImage(
+                            imageUrl: backdropUrl,
+                            headers: _svc?.imageHeaders,
+                            fit: BoxFit.cover,
+                            errorWidget: (_, __, ___) =>
+                                const SizedBox.shrink(),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                Container(
-                  width: double.infinity,
-                  constraints: BoxConstraints(minHeight: wide ? 560 : 0),
-                  decoration: BoxDecoration(
-                    // 不再用主色调覆盖海报，避免海报被染色发糊。
-                    color: Colors.transparent,
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black.withValues(alpha: 0.18),
-                        Colors.black.withValues(alpha: 0.78),
+                  Container(
+                    width: double.infinity,
+                    constraints: const BoxConstraints(minHeight: 560),
+                    decoration: BoxDecoration(
+                      color: Colors.transparent,
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: 0.18),
+                          Colors.black.withValues(alpha: 0.78),
+                        ],
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _detailTopBar(c),
+                        Padding(
+                          padding:
+                              const EdgeInsets.fromLTRB(20, 210, 20, 22),
+                          child: Align(
+                            alignment: Alignment.bottomLeft,
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 680),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _detailInfoColumn(),
+                                  const SizedBox(height: 16),
+                                  _actionGroup(),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _detailTopBar(c),
-                      Padding(
-                        padding:
-                            EdgeInsets.fromLTRB(20, wide ? 210 : 18, 20, 22),
-                        child: wide
-                            ? Align(
-                                alignment: Alignment.bottomLeft,
-                                child: ConstrainedBox(
-                                  constraints:
-                                      const BoxConstraints(maxWidth: 680),
-                                  child: _detailInfoColumn(),
-                                ),
-                              )
-                            : Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Center(
-                                    child: SizedBox(
-                                      width: posterWidth,
-                                      child: _posterCard(posterUrl),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 22),
-                                  _detailInfoColumn(),
-                                ],
-                              ),
+                ],
+              );
+            }
+
+            // 移动/平板：飞牛详情页布局 —— 海报占 3/4 屏高，信息/按钮叠在左下
+            return SizedBox(
+              height: posterH,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // 背景大图（无模糊，直铺）
+                  if (backdropUrl.isNotEmpty)
+                    ServerImage(
+                      imageUrl: backdropUrl,
+                      headers: _svc?.imageHeaders,
+                      fit: BoxFit.cover,
+                      errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                    ),
+                  // 渐变压暗，保证左下文字可读
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: 0.0),
+                          Colors.black.withValues(alpha: 0.30),
+                          Colors.black.withValues(alpha: 0.88),
+                        ],
+                        stops: const [0.0, 0.55, 1.0],
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              ],
+                  // 顶部栏（只返回）
+                  Align(
+                    alignment: Alignment.topCenter,
+                    child: _detailTopBar(c),
+                  ),
+                  // 海报居中（占 3/4 屏高）
+                  Center(
+                    child: SizedBox(
+                      width: posterW,
+                      child: _posterCard(posterUrl),
+                    ),
+                  ),
+                  // 信息组（左下 3/4 位置，操作区上方）：标题特效 + 评分 + 年份/地区/类型
+                  Positioned(
+                    left: 20,
+                    right: 20,
+                    bottom: 128,
+                    child: _detailInfoColumn(),
+                  ),
+                  // 操作组（4/4 底部）：字幕/音源 + 播放 + 收藏/下载/已观看
+                  Positioned(
+                    left: 20,
+                    right: 20,
+                    bottom: 16,
+                    child: _actionGroup(),
+                  ),
+                ],
+              ),
             );
           },
         ),
@@ -1149,6 +1115,7 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
   }
 
   Widget _detailTopBar(BuildContext c) {
+    // 飞牛风格：顶部栏只保留返回按钮，标题/信息都叠在海报上，不额外占位
     return SafeArea(
       bottom: false,
       child: Padding(
@@ -1163,31 +1130,16 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
                 child: Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.5),
+                    color: Colors.black.withValues(alpha: 0.45),
                     borderRadius: BorderRadius.circular(12),
+                    border:
+                        Border.all(color: Colors.white.withValues(alpha: 0.15)),
                   ),
                   child: const Icon(Icons.arrow_back_rounded,
                       color: Colors.white, size: 22),
                 ),
               ),
             ),
-            const Spacer(),
-            if (_serverName.isNotEmpty)
-              Container(
-                constraints: const BoxConstraints(maxWidth: 180),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  _serverName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                ),
-              ),
           ],
         ),
       ),
@@ -1248,30 +1200,67 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
   Widget _detailInfoColumn() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          _item.title,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
-            height: 1.18,
+        // 标题：大字号 + 深投影 + 蓝色光晕（飞牛标题特效）
+        AnimatedOpacity(
+          opacity: _heroLanded ? 1.0 : 0.0,
+          duration: AppAnimations.medium,
+          curve: AppAnimations.easeOut,
+          child: Text(
+            _item.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 34,
+              fontWeight: FontWeight.bold,
+              height: 1.15,
+              shadows: [
+                // 深色投影（保证在大图上可读）
+                Shadow(
+                  color: Colors.black87,
+                  blurRadius: 14,
+                  offset: Offset(0, 3),
+                ),
+                // 主光晕
+                Shadow(color: Color(0x9958A6FF), blurRadius: 32),
+                // 外圈柔光
+                Shadow(color: Color(0x3358A6FF), blurRadius: 56),
+              ],
+            ),
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         _ratingBadge(),
         const SizedBox(height: 4),
         _meta(),
         if (_item.genres.isNotEmpty) ...[
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           _genreTags(),
         ],
-        const SizedBox(height: 8),
+      ],
+    );
+  }
+
+  /// 底部操作组（飞牛布局）：字幕/音源 在播放按钮上方，播放 + 收藏/下载/已观看 一行
+  Widget _actionGroup() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
         _detailTrackControls(),
-        const SizedBox(height: 8),
-        _actionStrip(),
+        const SizedBox(height: 12),
+        // 播放按钮固定宽度，三个小按钮紧跟其右侧（不再用 Expanded 把按钮推走）
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _actionButtons(),
+            const SizedBox(width: 12),
+            _actionIconRow(),
+          ],
+        ),
       ],
     );
   }
@@ -1294,18 +1283,6 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
           fontWeight: FontWeight.w600,
         ),
       ),
-    );
-  }
-
-  /// 播放、收藏、已观看、删除保持在同一行。
-  Widget _actionStrip() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _actionButtons(),
-        _actionIconRow(),
-      ],
     );
   }
 
@@ -1379,64 +1356,73 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
       current = GestureDetector(
         key: const ValueKey('detail-play-button'),
         onTap: () => _play(episode: _selectedEpisode),
-        child: Container(
-          height: 44,
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(22),
-            boxShadow: [
-              BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.25),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4)),
-            ],
-          ),
-          child: Stack(
-            children: [
-              // 续播进度覆盖（Streama 风格）：从左到右填充，
-              // 进度语义=已观看部分，与进度条方向一致
-              if (resume)
-                FractionallySizedBox(
-                  alignment: Alignment.centerLeft,
-                  widthFactor: (progress ?? 0).clamp(0.0, 1.0),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: AppTheme.primary.withValues(alpha: 0.22),
-                      borderRadius: BorderRadius.circular(22),
-                    ),
-                  ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(22),
+          child: BackdropFilter(
+            // 飞牛风格：蓝色毛玻璃播放按钮，白字
+            filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+            child: Container(
+              height: 44,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF2E93FF), Color(0xFF1B6FE0)],
                 ),
-              Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: [
+                  BoxShadow(
+                      color: const Color(0xFF2E93FF).withValues(alpha: 0.35),
+                      blurRadius: 14,
+                      offset: const Offset(0, 4)),
+                ],
+              ),
+              child: Stack(
+                children: [
+                  // 续播进度覆盖：从左到右填充（已观看部分用半透明白色）
+                  if (resume)
+                    FractionallySizedBox(
+                      alignment: Alignment.centerLeft,
+                      widthFactor: (progress ?? 0).clamp(0.0, 1.0),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(22),
+                        ),
+                      ),
+                    ),
+                  Center(
+                    child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.play_arrow_rounded,
-                            color: Colors.black, size: 22),
-                        SizedBox(width: 6),
-                        Text(
-                          resume ? '继续观看' : '播放',
-                          style: const TextStyle(
-                              color: Colors.black,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.play_arrow_rounded,
+                                color: Colors.white, size: 22),
+                            const SizedBox(width: 6),
+                            Text(
+                              resume ? '继续观看' : '播放',
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700),
+                            ),
+                          ],
                         ),
+                        if (subLabel.isNotEmpty)
+                          Text(
+                            subLabel,
+                            style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.75),
+                                fontSize: 10),
+                          ),
                       ],
                     ),
-                    if (subLabel.isNotEmpty)
-                      Text(
-                        subLabel,
-                        style: TextStyle(
-                            color: Colors.black.withValues(alpha: 0.55),
-                            fontSize: 10),
-                      ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       );
@@ -1532,6 +1518,19 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
             style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.9), fontSize: 14)),
       ));
+    // 地区（Emby ProductionLocations / FnOS area），与年份/类型并列
+    for (final loc in _item.productionLocations) {
+      if (loc.trim().isEmpty) continue;
+      p.add(Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(10)),
+        child: Text(loc,
+            style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.9), fontSize: 14)),
+      ));
+    }
     return Wrap(spacing: 8, runSpacing: 4, children: p);
   }
 
@@ -1561,138 +1560,156 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
         decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.05),
             borderRadius: BorderRadius.circular(16)),
-        // AnimatedSize 让文字区域平滑长高/缩短，下方内容跟着平移而非突然跳位
-        child: AnimatedSize(
-          duration: AppAnimations.medium,
-          curve: AppAnimations.easeInOut,
-          alignment: Alignment.topCenter,
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(_item.overview!,
-                style: const TextStyle(
-                    color: Colors.white, fontSize: 14, height: 1.7),
-                maxLines: _expanded ? null : 4,
-                overflow: TextOverflow.fade),
-            if (_item.overview!.length > 200)
-              GestureDetector(
-                onTap: () => setState(() => _expanded = !_expanded),
-                behavior: HitTestBehavior.opaque,
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    // 按钮文字随状态切换（原实现恒为「收起」，收起状态下也显示「收起」）
-                    Text(_expanded ? '收起' : '展开',
-                        style: const TextStyle(
-                            color: AppTheme.primary, fontSize: 12)),
-                    const SizedBox(width: 2),
-                    AnimatedRotation(
-                      turns: _expanded ? 0.5 : 0.0,
-                      duration: AppAnimations.medium,
-                      curve: AppAnimations.easeInOut,
-                      child: const Icon(Icons.keyboard_arrow_down_rounded,
-                          color: AppTheme.primary, size: 16),
-                    ),
-                  ]),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(_item.overview!,
+              style: const TextStyle(
+                  color: Colors.white, fontSize: 14, height: 1.7),
+              maxLines: 4,
+              overflow: TextOverflow.fade),
+          // 飞牛风格：点「更多」弹出小窗显示全文
+          if (_item.overview!.length > 200)
+            GestureDetector(
+              onTap: _showFullOverview,
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text('更多',
+                      style: const TextStyle(
+                          color: AppTheme.primary, fontSize: 12)),
+                  const SizedBox(width: 2),
+                  const Icon(Icons.keyboard_arrow_down_rounded,
+                      color: AppTheme.primary, size: 16),
+                ]),
+              ),
+            ),
+        ]),
+      ));
+
+  /// 简介全文弹窗（飞牛「更多」交互）
+  void _showFullOverview() {
+    showDialog<void>(
+      context: context,
+      builder: (c) => Dialog(
+        backgroundColor: Colors.black.withValues(alpha: 0.92),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_item.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Text(_item.overview!,
+                      style: const TextStyle(
+                          color: Colors.white, fontSize: 14, height: 1.7)),
                 ),
               ),
-          ]),
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(c),
+                  child: const Text('关闭',
+                      style: TextStyle(color: AppTheme.primary)),
+                ),
+              ),
+            ],
+          ),
         ),
-      ));
+      ),
+    );
+  }
 
   Widget _seasonPicker() {
     if (_seasons.isEmpty) return const SizedBox.shrink();
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
-          child: Text('季',
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold))),
-      // 选中态用滑动药丸而非直接换色：一个紫色药丸从旧位置滑到新位置，
-      // 选中感连续，不是「熄灭一个再点亮另一个」两次独立突变。
-      // 药丸宽度需固定才能算出偏移，因此每项统一 _seasonPillWidth。
-      SizedBox(
-        height: 50,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          children: [
-            SizedBox(
-              width: _seasons.length * (_seasonPillWidth + 12),
-              child: Stack(children: [
-                // 底层：未选中背景
-                Row(
-                    children: List.generate(
-                        _seasons.length,
-                        (i) => Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 6),
-                              child: Container(
-                                width: _seasonPillWidth,
-                                height: 44,
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            ))),
-                // 滑动指示器
-                AnimatedPositioned(
-                  duration: AppAnimations.navPill,
-                  curve: AppAnimations.easeOut,
-                  left: _selectedSeasonIndex * (_seasonPillWidth + 12) + 6,
-                  top: 0,
-                  child: Container(
-                    width: _seasonPillWidth,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: AppTheme.primary,
-                      borderRadius: BorderRadius.circular(12),
+    // 飞牛风格：季用海报图 + 第几季网格排列（无「季」标题，内容上移）
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 4,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+          childAspectRatio: 0.58,
+        ),
+        itemCount: _seasons.length,
+        itemBuilder: (_, i) {
+          final s = _seasons[i];
+          final sel = s.id == _seasonId;
+          return GestureDetector(
+            onTap: () => _loadEpisodes(s.id),
+            behavior: HitTestBehavior.opaque,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 季海报缩略图
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (s.posterUrl.isNotEmpty)
+                          ServerImage(
+                            imageUrl: s.posterUrl,
+                            headers: _svc?.imageHeaders,
+                            fit: BoxFit.cover,
+                            errorWidget: (_, __, ___) => Container(
+                              color: Colors.white.withValues(alpha: 0.08),
+                              child: const Center(
+                                  child: Icon(Icons.ondemand_video,
+                                      color: Colors.white24, size: 24)),
+                            ),
+                          )
+                        else
+                          Container(
+                            color: Colors.white.withValues(alpha: 0.08),
+                            child: const Center(
+                                child: Icon(Icons.ondemand_video,
+                                    color: Colors.white24, size: 24)),
+                          ),
+                        // 选中框
+                        if (sel)
+                          Container(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                  color: AppTheme.primary, width: 2.5),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
-                // 顶层：文字 + 点击区
-                Row(
-                    children: List.generate(_seasons.length, (i) {
-                  final s = _seasons[i];
-                  final sel = s.id == _seasonId;
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: GestureDetector(
-                      onTap: () => _loadEpisodes(s.id),
-                      behavior: HitTestBehavior.opaque,
-                      child: SizedBox(
-                        width: _seasonPillWidth,
-                        height: 44,
-                        child: Center(
-                          child: TweenAnimationBuilder<double>(
-                            tween: Tween(begin: 0.0, end: sel ? 1.0 : 0.0),
-                            duration: AppAnimations.navPill,
-                            curve: AppAnimations.easeOut,
-                            builder: (_, t, __) => Text(
-                              s.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color:
-                                    Color.lerp(Colors.white70, Colors.white, t),
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                })),
-              ]),
+                const SizedBox(height: 6),
+                Text(
+                  '第${i + 1}季',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: sel ? AppTheme.primary : Colors.white70,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
-    ]);
+    );
   }
 
   Widget _episodeList() {
@@ -1711,7 +1728,7 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
                   fontSize: 16,
                   fontWeight: FontWeight.bold))),
       SizedBox(
-          height: 160,
+          height: 132,
           child: ListView.builder(
             controller: _episodeScrollController,
             scrollDirection: Axis.horizontal,
@@ -1739,12 +1756,12 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Stack(children: [
+                          // 横图缩略图占满剩余高度，选框整体呈横长方形（适配 16:9 图）
+                          Expanded(
+                            child: Stack(fit: StackFit.expand, children: [
                             ClipRRect(
                               borderRadius: BorderRadius.circular(12),
                               child: Container(
-                                width: 140,
-                                height: 82,
                                 decoration: BoxDecoration(
                                     color:
                                         Colors.white.withValues(alpha: 0.08)),
@@ -1824,18 +1841,25 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
                                     ),
                                   )),
                           ]),
-                          SizedBox(height: 8),
+                          ),
+                          SizedBox(height: 6),
                           Text(ep.title,
                               style: TextStyle(
                                   color: Colors.white70,
-                                  fontSize: 12,
+                                  fontSize: 11,
                                   fontWeight: FontWeight.w500),
-                              maxLines: 2,
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis),
-                          if (ep.duration > 0)
-                            Text('${ep.duration ~/ 60}分钟',
-                                style: TextStyle(
-                                    color: Colors.white38, fontSize: 11)),
+                          SizedBox(height: 2),
+                          Text(
+                            ep.duration > 0
+                                ? '${ep.duration ~/ 60}分钟'
+                                : 'E${ep.episodeNumber ?? i + 1}',
+                            style: TextStyle(
+                                color: Colors.white38, fontSize: 10),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ]),
                   ),
                 ),
@@ -1939,7 +1963,56 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
       // key 随媒体变化：切换剧集后重建 Tab（轨道列表可能不同）
-      child: _MediaInfoTabs(key: ValueKey(ti.id), item: ti),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 文件信息：添加日期 + 文件路径（飞牛：媒体/文件信息可看添加日期）
+          _fileInfoRow(ti),
+          const SizedBox(height: 12),
+          _MediaInfoTabs(key: ValueKey(ti.id), item: ti),
+        ],
+      ),
+    );
+  }
+
+  /// 文件信息行：添加日期 / 文件路径（飞牛详情页信息区）
+  Widget _fileInfoRow(MediaItem ti) {
+    final date = ti.dateCreated;
+    final dateStr =
+        (date != null && date.length >= 10) ? date.substring(0, 10) : '';
+    if (dateStr.isEmpty) return const SizedBox.shrink();
+
+    Widget chip(IconData icon, String text) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: Colors.white38, size: 13),
+            const SizedBox(width: 5),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 220),
+              child: Text(text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white60, fontSize: 12)),
+            ),
+          ],
+        );
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: Wrap(
+        spacing: 18,
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          if (dateStr.isNotEmpty) chip(Icons.calendar_today_rounded, '添加日期 $dateStr'),
+        ],
+      ),
     );
   }
 }

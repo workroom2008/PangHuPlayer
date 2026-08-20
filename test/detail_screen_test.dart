@@ -63,12 +63,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.byKey(const ValueKey('detail-track-controls')), findsOneWidget);
-    expect(find.byTooltip('下载'), findsNothing);
+    expect(find.byTooltip('下载'), findsOneWidget);
     expect(find.byTooltip('收藏'), findsOneWidget);
     expect(find.byTooltip('选择音频'), findsOneWidget);
     expect(find.byTooltip('选择字幕'), findsOneWidget);
     expect(find.byTooltip('标记已观看'), findsOneWidget);
-    expect(find.byTooltip('删除'), findsOneWidget);
+    expect(find.byTooltip('删除'), findsNothing);
     expect(find.byKey(const ValueKey('detail-poster')), findsOneWidget);
     expect(find.byKey(const ValueKey('detail-play-button')), findsOneWidget);
     final playSize = tester.getSize(

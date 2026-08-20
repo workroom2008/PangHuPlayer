@@ -36,6 +36,10 @@ class MediaItem {
   final bool isBoxSet;
   /// 库的 CollectionType（movies/tvshows/boxsets 等），用于决定库内查询参数
   final String? collectionType;
+  /// 制片地区（Emby ProductionLocations / FnOS 地区），详情页「年份·地区·类型」展示
+  final List<String> productionLocations;
+  /// 添加日期（服务器 DateCreated），媒体信息区展示
+  final String? dateCreated;
 
   const MediaItem({
     required this.id,
@@ -71,6 +75,8 @@ class MediaItem {
     this.filePath,
     this.isBoxSet = false,
     this.collectionType,
+    this.productionLocations = const [],
+    this.dateCreated,
   });
 
   MediaItem copyWith({
@@ -86,6 +92,8 @@ class MediaItem {
     MediaType? type,
     bool? isBoxSet,
     String? collectionType,
+    List<String>? productionLocations,
+    String? dateCreated,
     int? duration,
     String? imdbId,
     int? tmdbId,
@@ -130,6 +138,8 @@ class MediaItem {
       filePath: filePath ?? this.filePath,
       isBoxSet: isBoxSet ?? this.isBoxSet,
       collectionType: collectionType ?? this.collectionType,
+      productionLocations: productionLocations ?? this.productionLocations,
+      dateCreated: dateCreated ?? this.dateCreated,
     );
   }
 
@@ -162,6 +172,8 @@ class MediaItem {
       'filePath': filePath,
       'isBoxSet': isBoxSet,
       'collectionType': collectionType,
+      'productionLocations': productionLocations,
+      'dateCreated': dateCreated,
     };
   }
 
@@ -190,6 +202,9 @@ class MediaItem {
       seriesTitle: json['seriesTitle'] as String?,
       isBoxSet: json['isBoxSet'] as bool? ?? false,
       collectionType: json['collectionType'] as String?,
+      productionLocations:
+          (json['productionLocations'] as List<dynamic>?)?.cast<String>() ?? [],
+      dateCreated: json['dateCreated'] as String?,
       seriesId: json['seriesId'] as String?,
       totalSeasons: json['totalSeasons'] as int?,
       totalEpisodes: json['totalEpisodes'] as int?,

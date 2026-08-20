@@ -265,16 +265,9 @@ class _NavBarState extends State<_NavBar> with TickerProviderStateMixin {
   void didUpdateWidget(covariant _NavBar oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.currentIndex != oldWidget.currentIndex && _tabW > 0) {
-      final target = widget.currentIndex * _tabW;
-      if (widget.disableAnim) {
-        _posCtrl.value = target;
-      } else {
-        // 所有 index 变化统一用 easeOut 直接到位，不弹跳
-        _posCtrl.stop();
-        _posCtrl.animateTo(target,
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeOutCubic);
-      }
+      // 用户要求：点哪个胶囊就直接到位，不滑动经过中间项
+      _posCtrl.stop();
+      _posCtrl.value = widget.currentIndex * _tabW;
     }
   }
 

@@ -71,6 +71,7 @@ final router = GoRouter(
           child: player.PlayerScreen(
             media: extra!['media'] as MediaItem,
             streamUrl: extra['url'] as String,
+            forceMpv: extra['forceMpv'] as bool? ?? false,
             httpHeaders: extra['headers'] as Map<String, String>?,
             episodes: (extra['episodes'] as List<dynamic>?)?.cast<MediaItem>(),
             service: extra['service'] as MediaServerService?,

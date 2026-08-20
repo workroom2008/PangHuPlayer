@@ -149,11 +149,14 @@ class PlayerManager {
   }
 
   /// 创建并初始化引擎
+  /// [fallbackUrl]：主 URL（如 Emby 音频转码流）打不开时，回退引擎使用的地址
+  /// （如原始未转码流 + MPV 软解，保证高端音频有声）。
   Future<PlayerEngine> createEngine({
     required String url,
     Map<String, String>? httpHeaders,
     bool autoPlay = true,
     PlayerEngineType? forceEngine,
+    String? fallbackUrl,
   }) async {
     // 释放旧引擎
     await disposeEngine();
@@ -184,14 +187,20 @@ class PlayerManager {
         final fallbackType = engineType == PlayerEngineType.mpv
             ? PlayerEngineType.exo
             : PlayerEngineType.mpv;
-        AppLog.i('PlayerManager', '回退到 ${fallbackType.shortLabel} 内核');
+        // 回退引擎用 fallbackUrl（如 Emby 转码流 500 时用原始流），默认同一 URL
+        final fallbackTarget = (fallbackUrl != null && fallbackUrl.isNotEmpty)
+            ? _fixEmbyColorParams(fallbackUrl)
+            : fixedUrl;
+        _currentUrl = fallbackTarget;
+        AppLog.i('PlayerManager',
+            '回退到 ${fallbackType.shortLabel} 内核 (url=$fallbackTarget)');
 
         await _currentEngine!.dispose();
         _currentEngine = _createEngineInstance(fallbackType);
 
         try {
           await _currentEngine!.open(
-            url: fixedUrl,
+            url: fallbackTarget,
             httpHeaders: httpHeaders,
             autoPlay: autoPlay,
           );

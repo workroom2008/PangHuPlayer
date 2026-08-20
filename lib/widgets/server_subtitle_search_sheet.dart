@@ -81,6 +81,19 @@ class _ServerSubtitleSearchSheetState extends State<ServerSubtitleSearchSheet> {
     }
   }
 
+  /// 下载选中字幕（Emby RemoteSearch），成功后提示可重新选择
+  Future<void> _download(ServerSubtitleResult result) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await widget.service.downloadSubtitle(widget.itemId, result.id);
+      if (!mounted) return;
+      messenger.showSnackBar(const SnackBar(content: Text('字幕已下载，可重新打开字幕列表选择')));
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('字幕下载失败: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -160,6 +173,7 @@ class _ServerSubtitleSearchSheetState extends State<ServerSubtitleSearchSheet> {
                           final result = _results[index];
                           return ListTile(
                             contentPadding: EdgeInsets.zero,
+                            onTap: () => _download(result),
                             leading: const Icon(Icons.subtitles_rounded,
                                 color: AppTheme.primary),
                             title: Text(

@@ -149,10 +149,12 @@ class ExoFFmpegPlugin: FlutterPlugin {
                         result.success(player?.captureFrame())
                     }
                     "setSubtitleStyle" -> {
-                        val fontColor = call.argument<Int>("fontColor") ?: android.graphics.Color.WHITE
-                        val borderColor = call.argument<Int>("borderColor") ?: android.graphics.Color.BLACK
+                        // Flutter 的 int 经 MethodChannel 在 Android 端解出为 Long，
+                        // 用 Number 兼容 Integer/Long，避免 ClassCastException
+                        val fontColor = (call.argument<Number>("fontColor")?.toInt()) ?: android.graphics.Color.WHITE
+                        val borderColor = (call.argument<Number>("borderColor")?.toInt()) ?: android.graphics.Color.BLACK
                         val borderWidth = call.argument<Double>("borderWidth") ?: 3.0
-                        val bgColor = call.argument<Int>("backgroundColor") ?: android.graphics.Color.TRANSPARENT
+                        val bgColor = (call.argument<Number>("backgroundColor")?.toInt()) ?: android.graphics.Color.TRANSPARENT
                         val fontSizeScale = call.argument<Double>("fontSizeScale") ?: 1.0
                         val bold = call.argument<Boolean>("bold") ?: false
                         player?.applySubtitleStyle(fontColor, borderColor, borderWidth, bgColor, fontSizeScale, bold)

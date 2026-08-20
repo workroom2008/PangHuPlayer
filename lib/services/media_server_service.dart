@@ -161,9 +161,14 @@ abstract class MediaServerService {
     String itemId, {
     String? language,
   });
+  /// 从远程（Emby/Jellyfin RemoteSearch）下载字幕到媒体文件旁
+  Future<void> downloadSubtitle(String itemId, String subtitleId);
   Future<void> deleteItem(String itemId);
   Future<String> getStreamUrl(String itemId,
-      {String? quality, bool burnInSubtitle = false, int? subtitleIndex});
+      {String? quality,
+      bool burnInSubtitle = false,
+      int? subtitleIndex,
+      bool transcodeAudio = false});
   Future<List<MediaItem>> search(String query);
 
   /// 相似推荐（Emby/Jellyfin `/Items/{id}/Similar`）
@@ -580,6 +585,17 @@ class EmbyService extends MediaServerService {
     }
   }
 
+  @override
+  Future<void> downloadSubtitle(String itemId, String subtitleId) async {
+    await _ensureUserId();
+    try {
+      // Emby/Jellyfin 下载远程字幕：POST /Items/{id}/RemoteSearch/Subtitles/{subtitleId}
+      await dio.post('/Items/$itemId/RemoteSearch/Subtitles/$subtitleId');
+    } catch (e) {
+      throw MediaServerSubtitleException('字幕下载失败: $e');
+    }
+  }
+
   /// 从媒体服务器删除媒体条目（Emby/Jellyfin 通用接口）。
   @override
   Future<void> deleteItem(String itemId) async {
@@ -616,7 +632,8 @@ class EmbyService extends MediaServerService {
   Future<String> getStreamUrl(String itemId,
       {String? quality,
       bool burnInSubtitle = false,
-      int? subtitleIndex}) async {
+      int? subtitleIndex,
+      bool transcodeAudio = false}) async {
     await _ensureUserId();
     await _ensureAuth();
     final bitrate = _resolveBitrate(quality);
@@ -628,6 +645,13 @@ class EmbyService extends MediaServerService {
         ? '&SubtitleMethod=Encode'
             '&TranscodingSubtitleMethod=Encode'
             '${subtitleIndex != null ? '&SubtitleStreamIndex=$subtitleIndex' : ''}'
+        : '';
+
+    // Emby 服务器硬解/转码：客户端 Exo 无法硬解的高端音频（TrueHD/DTS/Atmos）
+    // 由服务器把音频转成 AAC（服务器有硬件解码器则硬解），视频保持直通。
+    // 优先级：本地硬解 → Emby 服务器硬解（此处）→ 本地软解（播放器切 MPV）。
+    final audioQuery = transcodeAudio
+        ? '&TranscodingAudioCodec=aac&AudioCodec=aac&TranscodingContainer=ts'
         : '';
 
     // Emby 需要先获取 PlaybackInfo 拿到真实 MediaSourceId 和 PlaySessionId
@@ -647,15 +671,17 @@ class EmbyService extends MediaServerService {
       if (mediaSources.isNotEmpty) {
         final sourceId = mediaSources[0]['Id']?.toString() ?? itemId;
         String url =
-            '$baseUrl/Videos/$itemId/stream?api_key=$apiKey&Static=true'
+            '$baseUrl/Videos/$itemId/stream?api_key=$apiKey'
+            '&Static=${transcodeAudio ? 'false' : 'true'}'
             '&MediaSourceId=$sourceId'
             '&DeviceId=$_playSessionId'
-            '$burnQuery';
+            '$burnQuery$audioQuery';
         if (playSessionId != null && playSessionId.isNotEmpty) {
           url += '&PlaySessionId=$playSessionId';
         }
         if (bitrate != null) url += '&MaxStreamingBitrate=$bitrate';
-        AppLog.i('Emby', 'streamUrl (PlaybackInfo): $url');
+        AppLog.i('Emby',
+            'streamUrl (PlaybackInfo): ${transcodeAudio ? '[音频转码] ' : ''}$url');
         return url;
       }
     } catch (e) {
@@ -664,9 +690,10 @@ class EmbyService extends MediaServerService {
 
     // Fallback: 直接用 itemId 作为 MediaSourceId
     String url =
-        '$baseUrl/Videos/$itemId/stream?api_key=$apiKey&Static=true&MediaSourceId=$itemId&DeviceId=$_playSessionId$burnQuery';
+        '$baseUrl/Videos/$itemId/stream?api_key=$apiKey&Static=${transcodeAudio ? 'false' : 'true'}'
+        '&MediaSourceId=$itemId&DeviceId=$_playSessionId$burnQuery$audioQuery';
     if (bitrate != null) url += '&MaxStreamingBitrate=$bitrate';
-    AppLog.i('Emby', 'streamUrl (fallback): $url');
+    AppLog.i('Emby', 'streamUrl (fallback): ${transcodeAudio ? '[音频转码] ' : ''}$url');
     return url;
   }
 
@@ -1233,6 +1260,9 @@ class EmbyService extends MediaServerService {
               ? MediaType.episode
               : MediaType.movie,
       isBoxSet: m['Type'] == 'BoxSet',
+      productionLocations:
+          (m['ProductionLocations'] as List?)?.map((e) => e.toString()).toList() ?? [],
+      dateCreated: m['DateCreated']?.toString(),
       seasonNumber: m['ParentIndexNumber'] ?? m['SeasonNumber'],
       episodeNumber: m['IndexNumber'] ?? m['EpisodeNumber'],
       seriesTitle: m['SeriesName'],
@@ -1875,12 +1905,14 @@ class FnOSService extends EmbyService {
   Future<String> getStreamUrl(String itemId,
       {String? quality,
       bool burnInSubtitle = false,
-      int? subtitleIndex}) async {
+      int? subtitleIndex,
+      bool transcodeAudio = false}) async {
     if (_jellyfinMode)
       return super.getStreamUrl(itemId,
           quality: quality,
           burnInSubtitle: burnInSubtitle,
-          subtitleIndex: subtitleIndex);
+          subtitleIndex: subtitleIndex,
+          transcodeAudio: transcodeAudio);
     await _ensureAuth();
     // POST /v/api/v1/play/info  body: {item_guid: itemId}
     // 响应中包含 media_guid，用于构造 /media/range/ 流地址
@@ -2339,6 +2371,11 @@ class FnOSService extends EmbyService {
       type: isSeries
           ? MediaType.series
           : (isEpisode ? MediaType.episode : MediaType.movie),
+      productionLocations: [
+        ...?((m['area'] ?? m['country'] ?? m['countries']) as List?)
+            ?.map((e) => e.toString()),
+      ],
+      dateCreated: m['created_at']?.toString() ?? m['added_at']?.toString(),
       duration: (m['duration'] as num?)?.toInt() ?? 0,
       seasonNumber: (m['season_number'] as num?)?.toInt(),
       episodeNumber: (m['episode_number'] as num?)?.toInt(),

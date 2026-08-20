@@ -45,6 +45,8 @@ class PlayerScreen extends ConsumerStatefulWidget {
 
   final MediaItem media;
   final String streamUrl;
+  /// 强制使用 MPV 内核（详情页判断高端音频 Exo 无法硬解时置 true，走 FFmpeg 软解）
+  final bool forceMpv;
   final Map<String, String>? httpHeaders;
   final List<MediaItem>? episodes;
   final MediaServerService? service;
@@ -55,6 +57,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
     super.key,
     required this.media,
     required this.streamUrl,
+    this.forceMpv = false,
     this.httpHeaders,
     this.episodes,
     this.service,
@@ -374,18 +377,63 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _restoreOrientation();
   }
 
+  /// 引擎返回的音频轨是否包含无法硬解的高端编码（TrueHD/DTS/Atmos 等）。
+  /// Exo/Media3 无 FFmpeg 扩展时这些编码会静默无声，需切 MPV 软解。
+  bool _isHighEndAudio(List<Map<String, dynamic>> audios) {
+    for (final a in audios) {
+      final codec = (a['codec'] ?? a['Codec'] ?? '').toString().toLowerCase();
+      if (codec.isEmpty) continue;
+      if (codec.contains('dts') ||
+          codec.contains('truehd') ||
+          codec.contains('mlp') ||
+          codec.contains('eac3') ||
+          codec.contains('ec-3') ||
+          codec.contains('ac4') ||
+          codec.contains('atmos')) {
+        AppLog.i('Player', '检测到高端音频编码: $codec');
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<void> _initPlayer() async {
     final manager = ref.read(playerManagerProvider);
 
     try {
+      // 优先级：本地硬解（Exo MediaCodec）→ Emby 服务器硬解（转码流）→ MPV 软解。
+      // 详情页已对高端音频请求 Emby 音频转码（AAC），这里先交给 Exo 硬解；
+      // 若 Emby 未成功转码（音频仍是高端编码）则自动切 MPV 软解（原始流）。
+      // 详情页已判断高端音频（TrueHD/DTS/Atmos）→ forceMpv=true 直接走 MPV 软解；
+      // 否则默认 Exo 硬解（MediaCodec）
       _engine = await manager.createEngine(
         url: widget.streamUrl,
         httpHeaders: widget.httpHeaders,
         autoPlay: true,
+        forceEngine: widget.forceMpv ? PlayerEngineType.mpv : null,
       );
       _engineType = _engine!.engineType;
       _engineKey++;
       _currentStreamUrl = widget.streamUrl;
+
+      // 运行时兜底：forceMpv=false 但 Exo 实际返回无法硬解的高端音频 → 切 MPV 软解
+      if (_engineType == PlayerEngineType.exo) {
+        try {
+          final audios = await _engine!.getAudioTracks();
+          if (_isHighEndAudio(audios)) {
+            AppLog.w('Player', 'Exo 无法解码高端音频，切换到 MPV 软解');
+            _engine = await manager.createEngine(
+              url: widget.streamUrl,
+              httpHeaders: widget.httpHeaders,
+              autoPlay: true,
+              forceEngine: PlayerEngineType.mpv,
+            );
+            _engineType = PlayerEngineType.mpv;
+            _engineKey++;
+            _currentStreamUrl = widget.streamUrl;
+          }
+        } catch (_) {}
+      }
 
       // 恢复用户音量/亮度：持久化值优先，未设置过则读取系统当前值作为起点，
       // 保证 HUD 与系统实际状态对应（而不是从 100% 起跳）
