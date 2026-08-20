@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 class AppTheme {
+  // ── 品牌色 ──
   static const primary = Color(0xFF6366F1);
   static const secondary = Color(0xFF8B5CF6);
   static const accent = Color(0xFFEC4899);
@@ -9,17 +10,39 @@ class AppTheme {
   static const warning = Color(0xFFF59E0B);
   static const error = Color(0xFFEF4444);
 
-  static const darkBg = Color(0xFF0B0B1A);
-  static const darkSurface = Color(0xFF16162E);
+  // ── Surface 层级（深色：从底到上依次升高） ──
+  static const darkBg = Color(0xFF0A0A14);
+  static const darkSurface = Color(0xFF12122A);
+  static const darkSurfaceHigh = Color(0xFF1A1A36);
   static const darkCard = Color(0xFF1E1E3A);
+  static const darkDivider = Color(0x1FFFFFFF);
   static const darkText = Color(0xFFFFFFFF);
   static const darkTextSec = Color(0xFF9CA3AF);
+  static const darkTextTertiary = Color(0xFF6B7280);
 
-  static const lightBg = Color(0xFFFFFFFF);
-  static const lightSurface = Color(0xFFF5F5F5);
+  // ── Surface 层级（浅色） ──
+  static const lightBg = Color(0xFFF8F9FA);
+  static const lightSurface = Color(0xFFFFFFFF);
+  static const lightSurfaceHigh = Color(0xFFFFFFFF);
   static const lightCard = Color(0xFFFFFFFF);
-  static const lightText = Color(0xFF1A1A1A);
-  static const lightTextSec = Color(0xFF666666);
+  static const lightDivider = Color(0x0F000000);
+  static const lightText = Color(0xFF111827);
+  static const lightTextSec = Color(0xFF6B7280);
+  static const lightTextTertiary = Color(0xFF9CA3AF);
+
+  // ── 渐变色 ──
+  static const primaryGradient = LinearGradient(
+    begin: Alignment.topLeft, end: Alignment.bottomRight,
+    colors: [Color(0xFF818CF8), primary, Color(0xFF6D28D9)],
+  );
+  static const accentGradient = LinearGradient(
+    begin: Alignment.topLeft, end: Alignment.bottomRight,
+    colors: [Color(0xFFF472B6), accent, Color(0xFFDB2777)],
+  );
+  static const surfaceGradient = LinearGradient(
+    begin: Alignment.topCenter, end: Alignment.bottomCenter,
+    colors: [darkSurface, darkBg],
+  );
 
   // ============================================================
   // 播放器专用常量 — 统一管理，禁止硬编码
@@ -111,30 +134,95 @@ class AppTheme {
     final d = b == Brightness.dark;
     final bg = d ? darkBg : lightBg;
     final surf = d ? darkSurface : lightSurface;
+    final surfHigh = d ? darkSurfaceHigh : lightSurfaceHigh;
+    final card = d ? darkCard : lightCard;
+    final divider = d ? darkDivider : lightDivider;
     final txt = d ? darkText : lightText;
     final txtSec = d ? darkTextSec : lightTextSec;
 
     return ThemeData(
       useMaterial3: true, brightness: b, primaryColor: primary, scaffoldBackgroundColor: bg,
-      colorScheme: ColorScheme.fromSeed(seedColor: primary, brightness: b),
+      colorScheme: ColorScheme.fromSeed(seedColor: primary, brightness: b).copyWith(
+        surface: surf,
+        surfaceContainerLow: d ? darkBg : const Color(0xFFF2F2F7),
+        surfaceContainer: surf,
+        surfaceContainerHigh: surfHigh,
+        surfaceContainerHighest: card,
+      ),
       // 全局关闭 Material 涟漪（Forward / VidHub 风格），改用 TapFeedback 组件
       splashFactory: NoSplash.splashFactory,
       highlightColor: Colors.transparent,
-      appBarTheme: AppBarTheme(backgroundColor: surf, elevation: 0, scrolledUnderElevation: 0,
+      dividerTheme: DividerThemeData(color: divider, thickness: 0.5, space: 0.5),
+      appBarTheme: AppBarTheme(
+        backgroundColor: Colors.transparent, elevation: 0, scrolledUnderElevation: 0,
         systemOverlayStyle: d ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
-        titleTextStyle: TextStyle(color: txt, fontSize: 20, fontWeight: FontWeight.w600),
+        titleTextStyle: TextStyle(color: txt, fontSize: 20, fontWeight: FontWeight.w600, letterSpacing: -0.3),
         iconTheme: IconThemeData(color: txt)),
-      cardTheme: CardThemeData(color: d ? darkCard : lightCard, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-      elevatedButtonTheme: ElevatedButtonThemeData(style: ElevatedButton.styleFrom(backgroundColor: primary, foregroundColor: Colors.white, elevation: 0, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)))),
-      inputDecorationTheme: InputDecorationTheme(filled: true, fillColor: surf,
+      cardTheme: CardThemeData(
+        color: card, elevation: 0, margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+      elevatedButtonTheme: ElevatedButtonThemeData(style: ElevatedButton.styleFrom(
+        backgroundColor: primary, foregroundColor: Colors.white, elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        textStyle: const TextStyle(fontWeight: FontWeight.w600, letterSpacing: -0.2))),
+      chipTheme: ChipThemeData(
+        backgroundColor: surfHigh,
+        selectedColor: primary,
+        disabledColor: surfHigh,
+        labelStyle: TextStyle(color: txt, fontSize: 13),
+        secondaryLabelStyle: TextStyle(color: Colors.white, fontSize: 13),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        side: BorderSide.none,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+        showCheckmark: false,
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: surfHigh,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        titleTextStyle: TextStyle(color: txt, fontSize: 18, fontWeight: FontWeight.w600),
+        contentTextStyle: TextStyle(color: txtSec, fontSize: 14),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: surfHigh,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        showDragHandle: true,
+        dragHandleColor: divider,
+      ),
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: d ? const Color(0xFF2A2A3E) : const Color(0xFF1A1A2E),
+        contentTextStyle: const TextStyle(color: Colors.white, fontSize: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        behavior: SnackBarBehavior.floating,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return Colors.white;
+          return d ? const Color(0xFF9CA3AF) : const Color(0xFFD1D5DB);
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return primary;
+          return d ? const Color(0xFF374151) : const Color(0xFFD1D5DB);
+        }),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true, fillColor: d ? darkSurfaceHigh : const Color(0xFFF2F2F7),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: primary, width: 2)),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: primary, width: 1.5)),
+        hintStyle: TextStyle(color: txtSec, fontSize: 14),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14)),
       textTheme: TextTheme(
-        titleLarge: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: txt),
-        bodyLarge: TextStyle(fontSize: 16, color: txt),
-        bodyMedium: TextStyle(fontSize: 14, color: txt),
-        bodySmall: TextStyle(fontSize: 12, color: txtSec)),
+        headlineMedium: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: txt, letterSpacing: -0.5, height: 1.2),
+        titleLarge: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: txt, letterSpacing: -0.3),
+        titleMedium: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: txt, letterSpacing: -0.2),
+        bodyLarge: TextStyle(fontSize: 16, color: txt, height: 1.5),
+        bodyMedium: TextStyle(fontSize: 14, color: txt, height: 1.4),
+        bodySmall: TextStyle(fontSize: 12, color: txtSec, height: 1.3),
+        labelLarge: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: txt, letterSpacing: -0.1),
+        labelSmall: TextStyle(fontSize: 11, color: txtSec, letterSpacing: 0.3),
+      ),
     );
   }
 }
@@ -143,15 +231,22 @@ extension ThemeColors on BuildContext {
   bool get isDark => Theme.of(this).brightness == Brightness.dark;
   Color get textPrimary => isDark ? AppTheme.darkText : AppTheme.lightText;
   Color get textPrimary70 => textPrimary.withValues(alpha: 0.7);
+  Color get textPrimary50 => textPrimary.withValues(alpha: 0.5);
   Color get textPrimary38 => textPrimary.withValues(alpha: 0.38);
   Color get textPrimary30 => textPrimary.withValues(alpha: 0.3);
   Color get textPrimary24 => textPrimary.withValues(alpha: 0.24);
   Color get textPrimary10 => textPrimary.withValues(alpha: 0.1);
   Color get textPrimary60 => textPrimary.withValues(alpha: 0.6);
   Color get textSecondary => isDark ? AppTheme.darkTextSec : AppTheme.lightTextSec;
+  Color get textTertiary => isDark ? AppTheme.darkTextTertiary : AppTheme.lightTextTertiary;
   Color get surfaceColor => isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
+  Color get surfaceHighColor => isDark ? AppTheme.darkSurfaceHigh : AppTheme.lightSurfaceHigh;
   Color get cardColor => isDark ? AppTheme.darkCard : AppTheme.lightCard;
   Color get bgColor => isDark ? AppTheme.darkBg : AppTheme.lightBg;
+  Color get dividerColor => isDark ? AppTheme.darkDivider : AppTheme.lightDivider;
+
+  /// 分组卡片背景（设置页等使用）
+  Color get groupBg => isDark ? AppTheme.darkSurfaceHigh.withValues(alpha: 0.6) : const Color(0xFFF2F2F7);
 }
 
 

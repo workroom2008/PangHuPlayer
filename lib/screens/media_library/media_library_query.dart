@@ -9,6 +9,12 @@ enum MediaLibrarySortField {
   watched,
 }
 
+enum MediaLibraryLayout {
+  grid,
+  folder,
+  list,
+}
+
 class MediaLibraryFilter {
   final String? category;
   final String? genre;
@@ -35,7 +41,8 @@ class MediaLibraryFilter {
     Object? folder = _unset,
   }) {
     return MediaLibraryFilter(
-      category: identical(category, _unset) ? this.category : category as String?,
+      category:
+          identical(category, _unset) ? this.category : category as String?,
       genre: identical(genre, _unset) ? this.genre : genre as String?,
       year: identical(year, _unset) ? this.year : year as int?,
       decade: identical(decade, _unset) ? this.decade : decade as int?,
@@ -111,14 +118,21 @@ class MediaLibraryQuery {
     return result.toList();
   }
 
+  /// 按媒体文件父目录分组，保持媒体首次出现时的文件夹顺序。
+  static Map<String, List<MediaItem>> folderGroups(List<MediaItem> items) {
+    final groups = <String, List<MediaItem>>{};
+    for (final item in items) {
+      groups.putIfAbsent(_folderFor(item), () => <MediaItem>[]).add(item);
+    }
+    return groups;
+  }
+
   static String _folderFor(MediaItem item) {
     final path = item.filePath?.trim() ?? '';
     if (path.isEmpty) return '未分类';
 
-    final parts = path
-        .split(RegExp(r'[\\/]'))
-        .where((part) => part.isNotEmpty)
-        .toList();
+    final parts =
+        path.split(RegExp(r'[\\/]')).where((part) => part.isNotEmpty).toList();
     if (parts.length < 2) return '未分类';
     return parts[parts.length - 2];
   }

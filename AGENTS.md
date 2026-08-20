@@ -102,3 +102,13 @@ flutter analyze                                                                #
 4. 「**完成后**」→ 我默认跑测试 + analyze 并把证据写进总结。
 
 一句话：**你可以随时打断流程，但默认我会按这个工作流执行。**
+
+---
+
+## 7. Superpowers 技能库（全局）
+
+本机已全局安装 Superpowers 技能库（`~/.freebuff/superpowers/`，含 14 个技能），
+全局引导见 `~/.freebuff/AGENTS.md` / `~/AGENTS.md`。涉及本仓库任务时，
+技能触发规则同样适用：动手前先检查是否有适用技能，有则先读对应 `SKILL.md` 再执行
+（本文件的流程已与 brainstorming / writing-plans / test-driven-development /
+verification-before-completion 等技能对齐）。

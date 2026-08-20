@@ -1,5 +1,8 @@
 allprojects {
     repositories {
+        // 国内网络 maven.google.com 不可达，优先走阿里云镜像
+        maven { url = uri("https://maven.aliyun.com/repository/google") }
+        maven { url = uri("https://maven.aliyun.com/repository/central") }
         google()
         mavenCentral()
     }
@@ -46,7 +49,8 @@ subprojects {
             extensions.configure<com.android.build.api.dsl.LibraryExtension>("android") {
                 sourceSets.getByName("main") {
                     jniLibs {
-                        srcDir("D:/Trae CN/torrent/player/lanplayer/build/jni_native_prebuilt")
+                        // 预编译 .so 已提交进仓库(android/app/src/main/jniLibs)，此处直接复用
+                        srcDir(rootProject.file("app/src/main/jniLibs"))
                     }
                 }
             }

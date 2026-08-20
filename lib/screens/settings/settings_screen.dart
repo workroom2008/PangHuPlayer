@@ -31,7 +31,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
-            expandedHeight: 140,
+            expandedHeight: 120,
             pinned: true,
             floating: true,
             backgroundColor: context.bgColor,
@@ -39,28 +39,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               titlePadding: EdgeInsets.zero,
               expandedTitleScale: 1.0,
               title: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(height: 40),
-                    Text(
-                      '设置',
-                      style: TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.bold,
-                        color: context.textPrimary,
-                      ),
-                    ),
-                  ],
+                padding: const EdgeInsets.fromLTRB(20, 48, 20, 12),
+                child: Text(
+                  '设置',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: context.textPrimary,
+                    letterSpacing: -0.5,
+                  ),
                 ),
               ),
             ),
           ),
           SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
+            child: Column(
                 children: [
                   _buildSection('服务器配置', [
                     _SettingsItem(
@@ -167,11 +160,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       onTap: () => _navigateTo(LogScreen()),
                     ),
                   ]).animate().fadeIn(delay: 300.ms).slideY(begin: 0.1, end: 0),
-                  SizedBox(height: 100),
+                  SizedBox(height: MediaQuery.paddingOf(context).bottom + 80),
                 ],
               ),
             ),
-          ),
         ],
       ),
     );
@@ -182,25 +174,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 4),
+          padding: const EdgeInsets.only(left: 20, top: 28, bottom: 8),
           child: Text(
             title,
             style: TextStyle(
               fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: context.textPrimary38,
-              letterSpacing: 0.5,
+              fontWeight: FontWeight.w500,
+              color: context.textTertiary,
+              letterSpacing: 0.2,
             ),
           ),
         ),
-        SizedBox(height: 10),
         Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
-            color: context.surfaceColor,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: context.textPrimary.withValues(alpha: 0.04)),
+            color: context.isDark
+                ? AppTheme.darkSurfaceHigh.withValues(alpha: 0.5)
+                : Colors.white,
+            borderRadius: BorderRadius.circular(14),
           ),
-          child: Column(children: items),
+          child: Column(
+            children: [
+              for (int i = 0; i < items.length; i++) ...[
+                if (i > 0)
+                  Divider(
+                    height: 0.5,
+                    thickness: 0.5,
+                    indent: 52,
+                    color: context.dividerColor,
+                  ),
+                items[i],
+              ],
+            ],
+          ),
         ),
       ],
     );
@@ -323,23 +329,26 @@ class _SettingsItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ic = iconColor ?? AppTheme.primary;
-    final bg = ic.withValues(alpha: 0.12);
+    final bg = ic.withValues(alpha: 0.15);
     return InkWell(
-      onTap: onTap, 
-      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      highlightColor: Colors.transparent,
+      splashColor: Colors.transparent,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
+            // 图标容器：更圆润，颜色更柔和
             Container(
-              padding: const EdgeInsets.all(10),
+              width: 32,
+              height: 32,
               decoration: BoxDecoration(
                 color: bg,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(icon, color: ic, size: 20),
+              child: Icon(icon, color: ic, size: 18),
             ),
-            SizedBox(width: 14),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -349,19 +358,21 @@ class _SettingsItem extends StatelessWidget {
                     style: TextStyle(
                       color: context.textPrimary,
                       fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.3,
+                      fontWeight: FontWeight.w400,
+                      letterSpacing: -0.1,
                     ),
                   ),
-                  SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: context.textPrimary.withValues(alpha: 0.5),
-                      fontSize: 12,
-                      letterSpacing: 0.2,
+                  if (subtitle.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: context.textTertiary,
+                        fontSize: 12,
+                        letterSpacing: -0.1,
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -370,8 +381,8 @@ class _SettingsItem extends StatelessWidget {
             else
               Icon(
                 Icons.chevron_right_rounded,
-                color: context.textPrimary.withValues(alpha: 0.3),
-                size: 20,
+                color: context.textTertiary,
+                size: 18,
               ),
           ],
         ),

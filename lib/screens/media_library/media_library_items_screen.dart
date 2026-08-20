@@ -6,6 +6,7 @@ import '../../models/media_models.dart';
 import '../../services/media_server_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/animation_config.dart';
+import '../../utils/adaptive_layout.dart';
 import '../../widgets/server_image.dart';
 import '../detail/detail_screen.dart';
 import '../search/search_screen.dart';
@@ -32,6 +33,7 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
   List<MediaItem> _allItems = const [];
   MediaLibrarySortField _sortField = MediaLibrarySortField.addedDate;
   bool _descending = true;
+  MediaLibraryLayout _layout = MediaLibraryLayout.grid;
   bool _isPortrait = true;
   MediaLibraryFilter _filter = const MediaLibraryFilter();
 
@@ -102,7 +104,14 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
                       ? _buildEmptyState()
                       : _buildNoFilterResultsState();
                 }
-                return _buildItemsGrid(items);
+                switch (_layout) {
+                  case MediaLibraryLayout.grid:
+                    return _buildItemsGrid(items);
+                  case MediaLibraryLayout.folder:
+                    return _buildFolderGroups(items);
+                  case MediaLibraryLayout.list:
+                    return _buildItemsList(items);
+                }
               },
             ),
             const SliverToBoxAdapter(child: SizedBox(height: 100)),
@@ -217,9 +226,13 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
                 tooltip: '布局',
                 onPressed: _showLayoutPanel,
                 icon: Icon(
-                  _isPortrait
-                      ? Icons.grid_view_rounded
-                      : Icons.view_quilt_rounded,
+                  _layout == MediaLibraryLayout.folder
+                      ? Icons.folder_copy_rounded
+                      : _layout == MediaLibraryLayout.list
+                          ? Icons.view_list_rounded
+                          : _isPortrait
+                              ? Icons.grid_view_rounded
+                              : Icons.view_quilt_rounded,
                   color: context.textPrimary,
                 ),
               ),
@@ -230,9 +243,7 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
                   hasFilter
                       ? Icons.filter_alt_rounded
                       : Icons.filter_alt_outlined,
-                  color: hasFilter
-                      ? AppTheme.primary
-                      : context.textPrimary,
+                  color: hasFilter ? AppTheme.primary : context.textPrimary,
                 ),
               ),
             ],
@@ -363,20 +374,44 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
           children: [
             _panelTitle('布局'),
             _choiceTile(
-              label: '竖幅',
-              selected: _isPortrait,
-              trailing: const Icon(Icons.crop_portrait_rounded),
+              label: '网格',
+              selected: _layout == MediaLibraryLayout.grid && _isPortrait,
+              trailing: const Icon(Icons.grid_view_rounded),
               onTap: () {
-                setState(() => _isPortrait = true);
+                setState(() {
+                  _layout = MediaLibraryLayout.grid;
+                  _isPortrait = true;
+                });
                 Navigator.pop(context);
               },
             ),
             _choiceTile(
               label: '横幅',
-              selected: !_isPortrait,
+              selected: _layout == MediaLibraryLayout.grid && !_isPortrait,
               trailing: const Icon(Icons.crop_landscape_rounded),
               onTap: () {
-                setState(() => _isPortrait = false);
+                setState(() {
+                  _layout = MediaLibraryLayout.grid;
+                  _isPortrait = false;
+                });
+                Navigator.pop(context);
+              },
+            ),
+            _choiceTile(
+              label: '文件夹',
+              selected: _layout == MediaLibraryLayout.folder,
+              trailing: const Icon(Icons.folder_copy_rounded),
+              onTap: () {
+                setState(() => _layout = MediaLibraryLayout.folder);
+                Navigator.pop(context);
+              },
+            ),
+            _choiceTile(
+              label: '列表',
+              selected: _layout == MediaLibraryLayout.list,
+              trailing: const Icon(Icons.view_list_rounded),
+              onTap: () {
+                setState(() => _layout = MediaLibraryLayout.list);
                 Navigator.pop(context);
               },
             ),
@@ -411,13 +446,12 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
             }
 
             final selectedYear = draft.year == currentYear ? '今年' : '全部';
-            final selectedDecade = draft.decade == null
-                ? '全部'
-                : '${draft.decade}s';
+            final selectedDecade =
+                draft.decade == null ? '全部' : '${draft.decade}s';
 
             return SafeArea(
               child: SizedBox(
-                height: MediaQuery.sizeOf(context).height * 0.78,
+                height: MediaQuery.sizeOf(context).height * 0.92,
                 child: Column(
                   children: [
                     _panelTitle('筛选'),
@@ -425,80 +459,78 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
                       child: ListView(
                         padding: const EdgeInsets.only(bottom: 12),
                         children: [
-                          _filterHeading('分类'),
-                          ...[
-                            ('全部', null),
-                            ('电影', '电影'),
-                            ('电视节目', '电视节目'),
-                          ].map(
-                            (entry) => _choiceTile(
-                              label: entry.$1,
-                              selected: (draft.category ?? '全部') == entry.$1,
-                              onTap: () => update(
-                                draft.copyWith(category: entry.$2),
-                              ),
+                          _filterOptions(
+                            title: '分类',
+                            options: const [
+                              ('全部', null),
+                              ('电影', '电影'),
+                              ('电视节目', '电视节目'),
+                            ],
+                            selected: draft.category ?? '全部',
+                            onSelected: (value) => update(
+                              draft.copyWith(category: value),
                             ),
                           ),
-                          _filterHeading('类型'),
-                          ...[
-                            ('全部', null),
-                            ...genres.map((genre) => (genre, genre)),
-                          ].map(
-                            (entry) => _choiceTile(
-                              label: entry.$1,
-                              selected: (draft.genre ?? '全部') == entry.$1,
-                              onTap: () => update(
-                                draft.copyWith(genre: entry.$2),
-                              ),
+                          _filterOptions(
+                            title: '类型',
+                            options: [
+                              ('全部', null),
+                              ...genres.map((genre) => (genre, genre)),
+                            ],
+                            selected: draft.genre ?? '全部',
+                            onSelected: (value) => update(
+                              draft.copyWith(genre: value),
                             ),
                           ),
-                          _filterHeading('发行年份'),
-                          _choiceTile(
-                            label: '全部',
-                            selected: selectedYear == '全部' &&
-                                selectedDecade == '全部',
-                            onTap: () => update(
-                              draft.copyWith(year: null, decade: null),
+                          _filterOptions(
+                            title: '发行年份',
+                            options: [
+                              ('全部', null),
+                              ('今年', currentYear),
+                              ...decades
+                                  .map((decade) => ('${decade}s', decade)),
+                            ],
+                            selected: draft.year == currentYear
+                                ? '今年'
+                                : draft.decade == null
+                                    ? '全部'
+                                    : '${draft.decade}s',
+                            onSelected: (value) => update(
+                              value is int
+                                  ? draft.copyWith(year: value, decade: null)
+                                  : draft.copyWith(
+                                      year: null,
+                                      decade: value == null
+                                          ? null
+                                          : int.tryParse(value.toString()),
+                                    ),
                             ),
                           ),
-                          _choiceTile(
-                            label: '今年',
-                            selected: selectedYear == '今年',
-                            onTap: () => update(
-                              draft.copyWith(year: currentYear, decade: null),
+                          _filterOptions(
+                            title: '观看状态',
+                            options: const [
+                              ('全部', null),
+                              ('已观看', true),
+                              ('未观看', false),
+                            ],
+                            selected: draft.watched == null
+                                ? '全部'
+                                : draft.watched!
+                                    ? '已观看'
+                                    : '未观看',
+                            onSelected: (value) => update(
+                              draft.copyWith(watched: value as bool?),
                             ),
                           ),
-                          ...decades.map(
-                            (decade) => _choiceTile(
-                              label: '${decade}s',
-                              selected: selectedDecade == '${decade}s',
-                              onTap: () => update(
-                                draft.copyWith(year: null, decade: decade),
-                              ),
-                            ),
-                          ),
-                          _filterHeading('观看状态'),
-                          ...[
-                            ('全部', null),
-                            ('已观看', true),
-                            ('未观看', false),
-                          ].map(
-                            (entry) => _choiceTile(
-                              label: entry.$1,
-                              selected: draft.watched == entry.$2,
-                              onTap: () => update(
-                                draft.copyWith(watched: entry.$2),
-                              ),
-                            ),
-                          ),
-                          _filterHeading('文件夹'),
-                          ...folders.map(
-                            (folder) => _choiceTile(
-                              label: folder,
-                              selected: draft.folder == folder,
-                              onTap: () => update(
-                                draft.copyWith(folder: folder),
-                              ),
+                          _filterOptions(
+                            title: '文件夹',
+                            options: [
+                              ('全部', null),
+                              ...folders.map((folder) => (folder, folder)),
+                            ],
+                            selected: draft.folder ?? '全部',
+                            onSelected: (value) => update(
+                              draft.copyWith(folder: value as String?),
                             ),
                           ),
                         ],
@@ -601,6 +633,62 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
     );
   }
 
+  Widget _filterOptions<T>({
+    required String title,
+    required List<(String, T)> options,
+    required String selected,
+    required ValueChanged<T?> onSelected,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _filterHeading(title),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: options.map((option) {
+              final isSelected = selected == option.$1;
+              return InkWell(
+                onTap: () => onSelected(option.$2),
+                borderRadius: BorderRadius.circular(8),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  constraints: const BoxConstraints(minHeight: 40),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? AppTheme.primary.withValues(alpha: 0.22)
+                        : context.surfaceColor.withValues(alpha: 0.72),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isSelected
+                          ? AppTheme.primary
+                          : context.textSecondary.withValues(alpha: 0.12),
+                    ),
+                  ),
+                  child: Text(
+                    option.$1,
+                    style: TextStyle(
+                      color:
+                          isSelected ? AppTheme.primary : context.textPrimary,
+                      fontSize: 14,
+                      fontWeight:
+                          isSelected ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        const SizedBox(height: 4),
+      ],
+    );
+  }
+
   Widget _choiceTile({
     required String label,
     required bool selected,
@@ -627,16 +715,15 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
 
   Widget _buildItemsGrid(List<MediaItem> items) {
     final width = MediaQuery.sizeOf(context).width;
-    final crossAxisCount = width < 900 ? 3 : 6;
+    final crossAxisCount = adaptiveMediaColumnCount(width);
     final spacing = 12.0;
     final itemWidth =
         (width - 40 - spacing * (crossAxisCount - 1)) / crossAxisCount;
     final textScaler = MediaQuery.textScalerOf(context);
     final posterHeight = _isPortrait ? itemWidth * 1.5 : itemWidth * 10 / 16;
     final titleHeight = textScaler.scale(12) * 1.2 * 2;
-    final yearHeight = items.any((item) => item.year != null)
-        ? textScaler.scale(11) * 1.2
-        : 0;
+    final yearHeight =
+        items.any((item) => item.year != null) ? textScaler.scale(11) * 1.2 : 0;
     final itemHeight = posterHeight + 8 + titleHeight + yearHeight + 4;
 
     return SliverPadding(
@@ -668,7 +755,7 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
 
   Widget _buildLoadingGrid() {
     final width = MediaQuery.sizeOf(context).width;
-    final crossAxisCount = width < 900 ? 3 : 6;
+    final crossAxisCount = adaptiveMediaColumnCount(width);
     final spacing = 12.0;
     final itemWidth =
         (width - 40 - spacing * (crossAxisCount - 1)) / crossAxisCount;
@@ -692,6 +779,100 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
             ),
           ).animate().shimmer(duration: const Duration(milliseconds: 900)),
           childCount: crossAxisCount * 2,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFolderGroups(List<MediaItem> items) {
+    final groups = MediaLibraryQuery.folderGroups(items);
+    return SliverPadding(
+      key: const ValueKey('media-folders'),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final entry = groups.entries.elementAt(index);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.folder_rounded,
+                          color: AppTheme.primary, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          entry.key,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: context.textPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '${entry.value.length}',
+                        style: TextStyle(
+                            color: context.textSecondary, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  _buildFolderWrap(entry.value),
+                ],
+              ),
+            );
+          },
+          childCount: groups.length,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFolderWrap(List<MediaItem> items) {
+    final width = MediaQuery.sizeOf(context).width;
+    final columns = adaptiveMediaColumnCount(width);
+    final spacing = 12.0;
+    final itemWidth = (width - 40 - spacing * (columns - 1)) / columns;
+    return Wrap(
+      spacing: spacing,
+      runSpacing: spacing,
+      children: items
+          .map(
+            (item) => SizedBox(
+              width: itemWidth,
+              child: _MediaLibraryCard(
+                item: item,
+                isPortrait: _isPortrait,
+                imageHeaders: widget.serverService.imageHeaders,
+                onTap: () => _openItem(item),
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  Widget _buildItemsList(List<MediaItem> items) {
+    return SliverPadding(
+      key: const ValueKey('media-list'),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final item = items[index];
+            return _MediaLibraryListTile(
+              item: item,
+              imageHeaders: widget.serverService.imageHeaders,
+              onTap: () => _openItem(item),
+            );
+          },
+          childCount: items.length,
         ),
       ),
     );
@@ -734,7 +915,8 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
     );
   }
 
-  Widget _messageState({required IconData icon, required String title, Widget? action}) {
+  Widget _messageState(
+      {required IconData icon, required String title, Widget? action}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 100, horizontal: 20),
       child: Column(
@@ -776,6 +958,106 @@ class _LibraryItemsScreenState extends ConsumerState<LibraryItemsScreen> {
   }
 }
 
+class _MediaLibraryListTile extends StatelessWidget {
+  final MediaItem item;
+  final Map<String, String>? imageHeaders;
+  final VoidCallback onTap;
+
+  const _MediaLibraryListTile({
+    required this.item,
+    required this.imageHeaders,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 76,
+              height: 108,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: ServerImage(
+                  imageUrl: item.posterUrl,
+                  headers: imageHeaders,
+                  fit: BoxFit.cover,
+                  placeholder: (_, __) => _placeholder(context),
+                  errorWidget: (_, __, ___) => _placeholder(context),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: context.textPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        if (item.year != null)
+                          Text('${item.year}',
+                              style: TextStyle(
+                                  color: context.textSecondary, fontSize: 12)),
+                        if (item.rating != null && item.rating! > 0)
+                          Text('评分 ${item.rating!.toStringAsFixed(1)}',
+                              style: TextStyle(
+                                  color: context.textSecondary, fontSize: 12)),
+                        if (item.isWatched == true)
+                          Text('已观看',
+                              style: TextStyle(
+                                  color: AppTheme.primary, fontSize: 12)),
+                      ],
+                    ),
+                    if (item.filePath?.isNotEmpty == true) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        item.filePath!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: context.textSecondary, fontSize: 11),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: context.textSecondary),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _placeholder(BuildContext context) {
+    return Container(
+      color: context.surfaceColor,
+      child: Icon(Icons.movie_outlined, color: context.textSecondary),
+    );
+  }
+}
+
 class _MediaLibraryCard extends StatelessWidget {
   final MediaItem item;
   final bool isPortrait;
@@ -792,7 +1074,7 @@ class _MediaLibraryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    final columns = width < 900 ? 3 : 6;
+    final columns = adaptiveMediaColumnCount(width);
     final itemWidth = (width - 40 - 12 * (columns - 1)) / columns;
     final posterHeight = isPortrait ? itemWidth * 1.5 : itemWidth * 10 / 16;
 

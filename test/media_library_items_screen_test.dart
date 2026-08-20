@@ -91,7 +91,7 @@ Widget buildScreen() => MaterialApp(
     );
 
 void main() {
-  testWidgets('小屏使用三列且内容页提供排序布局筛选入口', (tester) async {
+  testWidgets('小屏使用自适应两列且内容页提供排序布局筛选入口', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -101,13 +101,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('media-grid')), findsOneWidget);
-    expect(find.byKey(const ValueKey('media-grid-3-columns')), findsOneWidget);
+    expect(find.byKey(const ValueKey('media-grid-2-columns')), findsOneWidget);
     expect(find.byTooltip('布局'), findsOneWidget);
     expect(find.byTooltip('筛选'), findsOneWidget);
     expect(find.text('类型'), findsNothing);
   });
 
-  testWidgets('大屏使用六列', (tester) async {
+  testWidgets('大屏使用自适应八列', (tester) async {
     tester.view.physicalSize = const Size(1440, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -116,7 +116,7 @@ void main() {
     await tester.pumpWidget(buildScreen());
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('media-grid-6-columns')), findsOneWidget);
+    expect(find.byKey(const ValueKey('media-grid-8-columns')), findsOneWidget);
   });
 
   testWidgets('加载完成后工具栏显示真实结果数量', (tester) async {
@@ -173,5 +173,29 @@ void main() {
       errors.where((error) => error.exception.toString().contains('overflowed')),
       isEmpty,
     );
+  });
+
+  testWidgets('布局面板提供网格、文件夹和列表三种模式', (tester) async {
+    await tester.pumpWidget(buildScreen());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('布局'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('网格'), findsOneWidget);
+    expect(find.text('文件夹'), findsOneWidget);
+    expect(find.text('列表'), findsOneWidget);
+  });
+
+  testWidgets('选择列表布局后显示媒体列表', (tester) async {
+    await tester.pumpWidget(buildScreen());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('布局'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('列表'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('media-list')), findsOneWidget);
   });
 }

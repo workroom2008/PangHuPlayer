@@ -6,7 +6,9 @@ import '../theme/app_theme.dart';
 import '../models/media_models.dart';
 
 class ServerSelectorChip extends ConsumerStatefulWidget {
-  const ServerSelectorChip({super.key});
+  final bool compact;
+
+  const ServerSelectorChip({super.key, this.compact = false});
 
   @override
   ConsumerState<ServerSelectorChip> createState() => _ServerSelectorChipState();
@@ -190,6 +192,39 @@ class _ServerSelectorChipState extends ConsumerState<ServerSelectorChip> with Si
   Widget build(BuildContext context) {
     final servers = ref.watch(mediaServersProvider);
     final defaultServer = servers.where((s) => s.isDefault).firstOrNull ?? servers.firstOrNull;
+
+    if (widget.compact) {
+      final serverName = defaultServer?.name ?? '选择服务器';
+      return CompositedTransformTarget(
+        link: _layerLink,
+        child: Tooltip(
+          message: serverName,
+          child: GestureDetector(
+            onTap: _toggleExpanded,
+            child: Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardColor,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Theme.of(context)
+                      .textTheme
+                      .bodyLarge!
+                      .color!
+                      .withValues(alpha: 0.15),
+                ),
+              ),
+              child: Icon(
+                Icons.dns_rounded,
+                color: Theme.of(context).textTheme.bodyLarge?.color,
+                size: 20,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     // 计算按钮宽度（按实际字体缩放测量，封顶：避免长服务器名把顶栏 Row 撑爆导致溢出）
     final textWidth = defaultServer != null ? _calculateTextWidth(defaultServer.name) : 80.0;

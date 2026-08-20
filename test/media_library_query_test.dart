@@ -113,4 +113,12 @@ void main() {
 
     expect(result.map((i) => i.id), ['a']);
   });
+
+  test('文件夹布局按父目录分组且未分类单独成组', () {
+    final groups = MediaLibraryQuery.folderGroups(items);
+
+    expect(groups.keys, ['Beta', 'Alpha', '未分类']);
+    expect(groups['Beta']!.single.id, 'a');
+    expect(groups['未分类']!.single.id, 'c');
+  });
 }

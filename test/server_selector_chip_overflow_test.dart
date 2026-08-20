@@ -26,7 +26,11 @@ void main() {
   });
 
   /// 在手机尺寸（360 逻辑宽）× 大字体缩放 × 超长服务器名下渲染芯片
-  Future<void> pumpChip(WidgetTester tester, {double textScale = 1.3}) async {
+  Future<void> pumpChip(
+    WidgetTester tester, {
+    double textScale = 1.3,
+    bool compact = false,
+  }) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3.0;
     tester.platformDispatcher.textScaleFactorTestValue = textScale;
@@ -49,11 +53,11 @@ void main() {
           mediaServersProvider
               .overrideWith((ref) => _FixedServersNotifier([server])),
         ],
-        child: const MaterialApp(
+        child: MaterialApp(
           home: Scaffold(
             body: Align(
               alignment: Alignment.topLeft,
-              child: ServerSelectorChip(),
+              child: ServerSelectorChip(compact: compact),
             ),
           ),
         ),
@@ -85,6 +89,17 @@ void main() {
 
     expect(tester.takeException(), isNull, reason: '芯片不应发生 RenderFlex 溢出');
     expect(find.textContaining('服务器名称'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
+  testWidgets('首页紧凑服务器控件不遮挡并隐藏服务器名称', (tester) async {
+    await pumpChip(tester, compact: true);
+
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('服务器名称'), findsNothing);
+    expect(find.byIcon(Icons.dns_rounded), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox());
     await tester.pump();

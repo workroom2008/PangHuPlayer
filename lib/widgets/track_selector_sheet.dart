@@ -21,6 +21,9 @@ class TrackSelectorSheet extends StatefulWidget {
   /// 选中回调（-1 表示关闭）
   final void Function(int index) onSelect;
 
+  /// 字幕面板可选的服务器字幕搜索入口。
+  final Future<void> Function()? onSearch;
+
   /// 是否显示搜索框（>5 条时自动显示）
   final bool showSearch;
 
@@ -30,6 +33,7 @@ class TrackSelectorSheet extends StatefulWidget {
     required this.tracks,
     required this.currentIndex,
     required this.onSelect,
+    this.onSearch,
     this.showSearch = true,
   });
 
@@ -40,6 +44,7 @@ class TrackSelectorSheet extends StatefulWidget {
     required List<Map<String, dynamic>> tracks,
     required int currentIndex,
     required void Function(int index) onSelect,
+    Future<void> Function()? onSearch,
     bool showSearch = true,
   }) {
     return showModalBottomSheet(
@@ -53,6 +58,7 @@ class TrackSelectorSheet extends StatefulWidget {
         tracks: tracks,
         currentIndex: currentIndex,
         onSelect: onSelect,
+        onSearch: onSearch,
         showSearch: showSearch,
       ),
     );
@@ -98,7 +104,8 @@ class _TrackSelectorSheetState extends State<TrackSelectorSheet> {
             color: const Color(0xFF1A1A24).withValues(alpha: 0.92),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
             border: Border(
-              top: BorderSide(color: Colors.white.withValues(alpha: 0.12), width: 1),
+              top: BorderSide(
+                  color: Colors.white.withValues(alpha: 0.12), width: 1),
             ),
           ),
           child: Column(
@@ -130,14 +137,16 @@ class _TrackSelectorSheetState extends State<TrackSelectorSheet> {
                     ),
                     const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
                         '${widget.tracks.length} 条',
-                        style: const TextStyle(color: Colors.white70, fontSize: 11),
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 11),
                       ),
                     ),
                     const Spacer(),
@@ -149,7 +158,8 @@ class _TrackSelectorSheetState extends State<TrackSelectorSheet> {
                           color: Colors.white.withValues(alpha: 0.1),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                        child: const Icon(Icons.close_rounded,
+                            color: Colors.white, size: 18),
                       ),
                     ),
                   ],
@@ -167,12 +177,16 @@ class _TrackSelectorSheetState extends State<TrackSelectorSheet> {
                     cursorColor: AppTheme.primary,
                     decoration: InputDecoration(
                       hintText: '搜索字幕/语言…',
-                      hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 14),
-                      prefixIcon: Icon(Icons.search_rounded, color: Colors.white.withValues(alpha: 0.5), size: 20),
+                      hintStyle: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.4),
+                          fontSize: 14),
+                      prefixIcon: Icon(Icons.search_rounded,
+                          color: Colors.white.withValues(alpha: 0.5), size: 20),
                       isDense: true,
                       filled: true,
                       fillColor: Colors.white.withValues(alpha: 0.06),
-                      contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                      contentPadding: const EdgeInsets.symmetric(
+                          vertical: 10, horizontal: 12),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide.none,
@@ -183,7 +197,43 @@ class _TrackSelectorSheetState extends State<TrackSelectorSheet> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: AppTheme.primary.withValues(alpha: 0.6), width: 1.5),
+                        borderSide: BorderSide(
+                            color: AppTheme.primary.withValues(alpha: 0.6),
+                            width: 1.5),
+                      ),
+                    ),
+                  ),
+                ),
+
+              if (widget.onSearch != null)
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () async {
+                      Navigator.of(context).pop();
+                      await widget.onSearch!();
+                    },
+                    child: const Padding(
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      child: Row(
+                        children: [
+                          Icon(Icons.manage_search_rounded,
+                              color: AppTheme.primary, size: 22),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              '搜索字幕',
+                              style: TextStyle(
+                                color: AppTheme.primary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          Icon(Icons.chevron_right_rounded,
+                              color: Colors.white38),
+                        ],
                       ),
                     ),
                   ),
@@ -199,7 +249,9 @@ class _TrackSelectorSheetState extends State<TrackSelectorSheet> {
                         child: Center(
                           child: Text(
                             '没有匹配的${widget.title}',
-                            style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 14),
+                            style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.5),
+                                fontSize: 14),
                           ),
                         ),
                       )
@@ -234,8 +286,10 @@ class _TrackSelectorSheetState extends State<TrackSelectorSheet> {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           decoration: BoxDecoration(
             border: Border(
-              top: BorderSide(color: Colors.white.withValues(alpha: 0.05), width: 0.5),
-              bottom: BorderSide(color: Colors.white.withValues(alpha: 0.05), width: 0.5),
+              top: BorderSide(
+                  color: Colors.white.withValues(alpha: 0.05), width: 0.5),
+              bottom: BorderSide(
+                  color: Colors.white.withValues(alpha: 0.05), width: 0.5),
             ),
           ),
           child: Row(
@@ -253,7 +307,9 @@ class _TrackSelectorSheetState extends State<TrackSelectorSheet> {
                 const SizedBox(width: 4),
               const SizedBox(width: 12),
               Icon(
-                isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+                isSelected
+                    ? Icons.check_circle_rounded
+                    : Icons.radio_button_unchecked,
                 color: isSelected ? AppTheme.primary : Colors.white54,
                 size: 20,
               ),
@@ -317,7 +373,9 @@ class _TrackSelectorSheetState extends State<TrackSelectorSheet> {
                             style: TextStyle(
                               color: isSelected ? Colors.white : Colors.white70,
                               fontSize: 15,
-                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -344,17 +402,26 @@ class _TrackSelectorSheetState extends State<TrackSelectorSheet> {
                           if (lang.isNotEmpty)
                             Text(
                               lang,
-                              style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 11),
+                              style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.45),
+                                  fontSize: 11),
                             ),
                           if (lang.isNotEmpty && codec.isNotEmpty)
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 6),
-                              child: Text('·', style: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 11)),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 6),
+                              child: Text('·',
+                                  style: TextStyle(
+                                      color:
+                                          Colors.white.withValues(alpha: 0.3),
+                                      fontSize: 11)),
                             ),
                           if (codec.isNotEmpty)
                             Text(
                               codec,
-                              style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 11),
+                              style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.45),
+                                  fontSize: 11),
                             ),
                         ],
                       ),
@@ -364,7 +431,9 @@ class _TrackSelectorSheetState extends State<TrackSelectorSheet> {
               ),
               const SizedBox(width: 12),
               Icon(
-                isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+                isSelected
+                    ? Icons.check_circle_rounded
+                    : Icons.radio_button_unchecked,
                 color: isSelected ? AppTheme.primary : Colors.white24,
                 size: 22,
               ),
@@ -382,7 +451,9 @@ class _TrackSelectorSheetState extends State<TrackSelectorSheet> {
         color: color.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(4),
       ),
-      child: Text(text, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w500)),
+      child: Text(text,
+          style: TextStyle(
+              color: color, fontSize: 10, fontWeight: FontWeight.w500)),
     );
   }
 }

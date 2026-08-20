@@ -12,6 +12,7 @@ import '../../../services/media_server_service.dart';
 import '../../../utils/app_log.dart';
 import '../../../database/media_library_repository.dart';
 import '../../../utils/animation_config.dart';
+import '../../../widgets/credit_list.dart';
 import '../../widgets/focusable_widgets.dart';
 import '../../widgets/media_hero.dart';
 
@@ -22,7 +23,8 @@ class TvDetailScreen extends ConsumerStatefulWidget {
   /// 共享元素飞行 tag（由来源卡片传入；null 表示无 Hero，背景走入场动画）
   final String? heroTag;
 
-  const TvDetailScreen({super.key, required this.item, this.service, this.heroTag});
+  const TvDetailScreen(
+      {super.key, required this.item, this.service, this.heroTag});
 
   @override
   ConsumerState<TvDetailScreen> createState() => _TvDetailScreenState();
@@ -39,6 +41,7 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
   String? _libraryItemId;
   bool _checkingLibrary = true;
   MediaItem? _selectedEpisode;
+  List<Map<String, dynamic>> _credits = [];
 
   // 剧集加载状态：区分 加载中 / 失败 / 无数据 / 有数据（替代空列表永久转圈）
   // 初始为 true：剧集类型详情页必然会发起加载，避免先闪"暂无剧集数据"再转圈
@@ -195,7 +198,8 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
 
   Future<void> _checkPlaylist() async {
     final playlist = ref.read(playlistProvider);
-    setState(() => _inPlaylist = playlist.any((p) => p.itemId == widget.item.id));
+    setState(
+        () => _inPlaylist = playlist.any((p) => p.itemId == widget.item.id));
   }
 
   Future<void> _togglePlaylist() async {
@@ -226,6 +230,7 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
         _checkingLibrary = false;
       });
       if (dbCache.type == MediaType.series) _loadSeasons(svc, dbCache.id);
+      _loadCredits();
     }
 
     if (cachedId != null) {
@@ -254,6 +259,7 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
         });
         _saveToDbCache(serverId, d);
         if (d.type == MediaType.series) _loadSeasons(svc, d.id);
+        _loadCredits();
       }).catchError((e) {
         AppLog.w('TvDetail', 'getItemDetails failed: $e');
       }),
@@ -281,7 +287,8 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
 
   String? _currentServerId() {
     final servers = ref.read(mediaServersProvider);
-    return servers.where((s) => s.isDefault).firstOrNull?.id ?? servers.firstOrNull?.id;
+    return servers.where((s) => s.isDefault).firstOrNull?.id ??
+        servers.firstOrNull?.id;
   }
 
   Future<MediaItem?> _loadFromDbCache(String? serverId, String itemId) async {
@@ -304,7 +311,8 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
     }
   }
 
-  Future<void> _fetchFullDetails(MediaServerService svc, {String? id, String? serverId}) async {
+  Future<void> _fetchFullDetails(MediaServerService svc,
+      {String? id, String? serverId}) async {
     final targetId = id ?? _libraryItemId ?? widget.item.id;
     try {
       final d = await svc.getItemDetails(targetId);
@@ -315,8 +323,59 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
       });
       _saveToDbCache(serverId ?? _currentServerId(), d);
       if (d.type == MediaType.series) _loadSeasons(svc, d.id);
+      _loadCredits();
     } catch (e) {
       AppLog.w('TvDetail', 'fetchFullDetails failed for $targetId: $e');
+    }
+  }
+
+  /// 加载 TV 详情页演员：先显示服务器数据，再用 TMDB 补头像和角色。
+  Future<void> _loadCredits() async {
+    final people = _full?.people;
+    if (people != null && people.isNotEmpty && mounted) {
+      setState(() =>
+          _credits = people.map((e) => Map<String, dynamic>.from(e)).toList());
+    }
+
+    final tmdbId = _item.tmdbId ?? int.tryParse(_item.id);
+    if (tmdbId == null) return;
+    try {
+      final tmdbCredits =
+          await ref.read(tmdbServiceProvider).getTVCredits(tmdbId);
+      if (!mounted || tmdbCredits.isEmpty) return;
+      final avatarMap = <String, String>{};
+      final roleMap = <String, String>{};
+      for (final credit in tmdbCredits) {
+        final name = (credit['name'] ?? '').toString().trim().toLowerCase();
+        final profile = (credit['profile_path'] ?? '').toString().trim();
+        final role = (credit['character'] ?? '').toString().trim();
+        if (name.isEmpty) continue;
+        if (profile.isNotEmpty) {
+          avatarMap[name] = 'https://image.tmdb.org/t/p/w185$profile';
+        }
+        if (role.isNotEmpty) roleMap[name] = role;
+      }
+      final merged = _credits.map((person) {
+        final name = (person['name'] ?? person['Name'] ?? '').toString().trim();
+        final key = name.toLowerCase();
+        final next = Map<String, dynamic>.from(person);
+        final image =
+            (next['ImageUrl'] ?? next['imageUrl'] ?? '').toString().trim();
+        if (image.isEmpty && avatarMap[key] != null)
+          next['ImageUrl'] = avatarMap[key];
+        final role =
+            (next['character'] ?? next['Role'] ?? '').toString().trim();
+        if (role.isEmpty && roleMap[key] != null) {
+          next['character'] = roleMap[key];
+          next['Role'] = roleMap[key];
+        }
+        return next;
+      }).toList();
+      setState(() => _credits = _credits.isEmpty
+          ? tmdbCredits.map((e) => Map<String, dynamic>.from(e)).toList()
+          : merged);
+    } catch (e) {
+      AppLog.w('TvDetail', '加载演员失败: $e');
     }
   }
 
@@ -462,8 +521,8 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
       AppLog.e('TvDetail', 'getStreamUrl failed', e);
       if (mounted) {
         setState(() => _preparingPlay = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('获取播放链接失败: ${e.toString()}')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('获取播放链接失败: ${e.toString()}')));
       }
     });
   }
@@ -473,7 +532,9 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
     if (_episodes.isEmpty) return null;
     try {
       return _episodes.firstWhere(
-        (e) => (e.seasonNumber == season || season == 1) && e.episodeNumber == episode,
+        (e) =>
+            (e.seasonNumber == season || season == 1) &&
+            e.episodeNumber == episode,
       );
     } catch (_) {
       return null;
@@ -568,12 +629,23 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
                       fit: StackFit.expand,
                       children: [
                         Positioned(
-                          left: 64, right: 64, bottom: 80,
+                          left: 64,
+                          right: 64,
+                          bottom: 80,
                           child: _buildHeroInfo(),
                         ),
                       ],
                     ),
                   ),
+                  // 演员头像失败时组件仍保留姓名和角色。
+                  if (_credits.isNotEmpty)
+                    CreditList(
+                      credits: _credits,
+                      imageHeaders: _svc?.imageHeaders,
+                      imageBaseUrl: _svc?.baseUrl,
+                      imageApiKey: _svc?.getAuthInfo()['apiKey'],
+                      compact: true,
+                    ),
                   // Content below
                   if (_item.type == MediaType.series) ...[
                     _buildEpisodeSection(),
@@ -644,266 +716,297 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
       mainAxisSize: MainAxisSize.min,
       children: [
         // ── Rating + Meta row ──
-        _entrance(0, Row(
-          children: [
-            if (_item.rating != null && _item.rating! > 0) ...[
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE50914),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.star_rounded,
-                        color: Colors.white, size: 14),
-                    const SizedBox(width: 4),
-                    Text(
-                      _item.rating!.toStringAsFixed(1),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
+        _entrance(
+            0,
+            Row(
+              children: [
+                if (_item.rating != null && _item.rating! > 0) ...[
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE50914),
+                      borderRadius: BorderRadius.circular(4),
                     ),
-                  ],
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.star_rounded,
+                            color: Colors.white, size: 14),
+                        const SizedBox(width: 4),
+                        Text(
+                          _item.rating!.toStringAsFixed(1),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                Text(
+                  _buildMetaText(),
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    shadows: [
+                      Shadow(
+                          color: Colors.black87,
+                          blurRadius: 6,
+                          offset: Offset(0, 1))
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-            ],
-            Text(
-              _buildMetaText(),
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                shadows: [Shadow(color: Colors.black87, blurRadius: 6, offset: Offset(0, 1))],
-              ),
-            ),
-          ],
-        )),
+              ],
+            )),
         // ── Genre line ──
         if (_item.genres.isNotEmpty) ...[
           const SizedBox(height: 6),
-          _entrance(1, Text(
-            _formatGenres(),
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.65),
-              fontSize: 13,
-              fontWeight: FontWeight.w400,
-              letterSpacing: 0.3,
-              shadows: const [Shadow(color: Colors.black87, blurRadius: 6, offset: Offset(0, 1))],
-            ),
-          )),
+          _entrance(
+              1,
+              Text(
+                _formatGenres(),
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.65),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: 0.3,
+                  shadows: const [
+                    Shadow(
+                        color: Colors.black87,
+                        blurRadius: 6,
+                        offset: Offset(0, 1))
+                  ],
+                ),
+              )),
         ],
         const SizedBox(height: 12),
 
         // ── Title (52sp/w900 — 复刻首页) ──
-        _entrance(2, Text(
-          _item.title,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 52,
-            fontWeight: FontWeight.w900,
-            height: 1.1,
-            letterSpacing: -0.5,
-            shadows: [
-              Shadow(color: Colors.black54, blurRadius: 12, offset: Offset(0, 2)),
-            ],
-          ),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        )),
+        _entrance(
+            2,
+            Text(
+              _item.title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 52,
+                fontWeight: FontWeight.w900,
+                height: 1.1,
+                letterSpacing: -0.5,
+                shadows: [
+                  Shadow(
+                      color: Colors.black54,
+                      blurRadius: 12,
+                      offset: Offset(0, 2)),
+                ],
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            )),
         const SizedBox(height: 16),
 
         // ── Overview (3 lines) ──
         if (_item.overview != null && _item.overview!.isNotEmpty)
-          _entrance(3, SizedBox(
-            width: 560,
-            child: Text(
-              _item.overview!,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.w400,
-                height: 1.4,
-                shadows: [Shadow(color: Colors.black87, blurRadius: 8, offset: Offset(0, 1))],
-              ),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
-          )),
+          _entrance(
+              3,
+              SizedBox(
+                width: 560,
+                child: Text(
+                  _item.overview!,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w400,
+                    height: 1.4,
+                    shadows: [
+                      Shadow(
+                          color: Colors.black87,
+                          blurRadius: 8,
+                          offset: Offset(0, 1))
+                    ],
+                  ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              )),
 
         const SizedBox(height: 24),
 
         // ── Play button ──
-        _entrance(4, Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isLoading)
-              Container(
-                height: 48,
-                padding: const EdgeInsets.symmetric(horizontal: 48),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: const Center(
-                  child: SizedBox(
-                    width: 20, height: 20,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white38),
-                  ),
-                ),
-              )
-            else if (!_inLibrary)
-              _FocusableButton(
-                focusId: 'detail_subscribe',
-                onTap: () {},
-                child: Container(
-                  height: 48,
-                  padding: const EdgeInsets.symmetric(horizontal: 40),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                        color: AppTheme.primary.withValues(alpha: 0.5)),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.cloud_download_rounded,
-                          color: AppTheme.primary, size: 22),
-                      SizedBox(width: 8),
-                      Text('订阅',
-                          style: TextStyle(
-                              color: AppTheme.primary,
+        _entrance(
+            4,
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isLoading)
+                  Container(
+                    height: 48,
+                    padding: const EdgeInsets.symmetric(horizontal: 48),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white38),
+                      ),
+                    ),
+                  )
+                else if (!_inLibrary)
+                  _FocusableButton(
+                    focusId: 'detail_subscribe',
+                    onTap: () {},
+                    child: Container(
+                      height: 48,
+                      padding: const EdgeInsets.symmetric(horizontal: 40),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                            color: AppTheme.primary.withValues(alpha: 0.5)),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.cloud_download_rounded,
+                              color: AppTheme.primary, size: 22),
+                          SizedBox(width: 8),
+                          Text('订阅',
+                              style: TextStyle(
+                                  color: AppTheme.primary,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700)),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  _FocusableButton(
+                    focusId: 'detail_play',
+                    onTap: () => _play(episode: _selectedEpisode),
+                    onFocusGained: _scrollToTop,
+                    child: Container(
+                      height: 48,
+                      padding: const EdgeInsets.symmetric(horizontal: 40),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // 取流期间播放图标 morph 为转圈（固定槽位保持按钮宽度稳定）
+                          SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: AnimatedSwitcher(
+                              duration: AppAnimations.fast,
+                              switchInCurve: Curves.easeOut,
+                              switchOutCurve: Curves.easeIn,
+                              child: _preparingPlay
+                                  ? const SizedBox(
+                                      key: ValueKey('loading'),
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2.5,
+                                          color: Colors.black),
+                                    )
+                                  : const Icon(
+                                      key: ValueKey('play'),
+                                      Icons.play_arrow_rounded,
+                                      color: Colors.black,
+                                      size: 28,
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _playButtonLabel(seasonNum, selectedEpIndex),
+                            style: const TextStyle(
+                              color: Colors.black,
                               fontSize: 16,
-                              fontWeight: FontWeight.w700)),
-                    ],
-                  ),
-                ),
-              )
-            else
-              _FocusableButton(
-                focusId: 'detail_play',
-                onTap: () => _play(episode: _selectedEpisode),
-                onFocusGained: _scrollToTop,
-                child: Container(
-                  height: 48,
-                  padding: const EdgeInsets.symmetric(horizontal: 40),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // 取流期间播放图标 morph 为转圈（固定槽位保持按钮宽度稳定）
-                      SizedBox(
-                        width: 28,
-                        height: 28,
-                        child: AnimatedSwitcher(
-                          duration: AppAnimations.fast,
-                          switchInCurve: Curves.easeOut,
-                          switchOutCurve: Curves.easeIn,
-                          child: _preparingPlay
-                              ? const SizedBox(
-                                  key: ValueKey('loading'),
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2.5, color: Colors.black),
-                                )
-                              : const Icon(
-                                  key: ValueKey('play'),
-                                  Icons.play_arrow_rounded,
-                                  color: Colors.black,
-                                  size: 28,
-                                ),
-                        ),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _playButtonLabel(seasonNum, selectedEpIndex),
-                        style: const TextStyle(
-                          color: Colors.black,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
-            if (_inLibrary) ...[
-              const SizedBox(width: 12),
-              _FocusableButton(
-                focusId: 'detail_playlist',
-                onTap: _togglePlaylist,
-                onFocusGained: _scrollToTop,
-                child: Container(
-                  height: 48,
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _inPlaylist ? Icons.check : Icons.add_rounded,
-                        color: Colors.white, size: 18,
+                if (_inLibrary) ...[
+                  const SizedBox(width: 12),
+                  _FocusableButton(
+                    focusId: 'detail_playlist',
+                    onTap: _togglePlaylist,
+                    onFocusGained: _scrollToTop,
+                    child: Container(
+                      height: 48,
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(6),
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        _inPlaylist ? '已添加' : '加入片单',
-                        style: const TextStyle(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _inPlaylist ? Icons.check : Icons.add_rounded,
                             color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600),
+                            size: 18,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _inPlaylist ? '已添加' : '加入片单',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
-            ],
-            if (_inLibrary &&
-                _item.type == MediaType.series &&
-                _seasons.isNotEmpty) ...[
-              const SizedBox(width: 12),
-              _FocusableButton(
-                focusId: 'detail_season_tag',
-                onTap: () => _showSeasonDialog(),
-                onFocusGained: _scrollToTop,
-                child: Container(
-                  height: 48,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(6),
+                ],
+                if (_inLibrary &&
+                    _item.type == MediaType.series &&
+                    _seasons.isNotEmpty) ...[
+                  const SizedBox(width: 12),
+                  _FocusableButton(
+                    focusId: 'detail_season_tag',
+                    onTap: () => _showSeasonDialog(),
+                    onFocusGained: _scrollToTop,
+                    child: Container(
+                      height: 48,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.list_rounded,
+                              color: Colors.white, size: 18),
+                          const SizedBox(width: 6),
+                          Text('S$seasonNum',
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.list_rounded,
-                          color: Colors.white, size: 18),
-                      const SizedBox(width: 6),
-                      Text('S$seasonNum',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ],
-        )),
+                ],
+              ],
+            )),
       ],
     );
   }
@@ -919,8 +1022,7 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
   void _scrollToTop() {
     if (_scrollCtrl.hasClients) {
       _scrollCtrl.animateTo(0,
-          duration: AppAnimations.slow,
-          curve: Curves.easeOutCubic);
+          duration: AppAnimations.slow, curve: Curves.easeOutCubic);
     }
   }
 
@@ -976,7 +1078,8 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
                   Flexible(
                     child: ListView.builder(
                       shrinkWrap: true,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 4),
                       itemCount: _seasons.length,
                       itemBuilder: (_, i) {
                         final s = _seasons[i];
@@ -1010,7 +1113,8 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
       return Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topCenter, end: Alignment.bottomCenter,
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
             colors: [Colors.transparent, Colors.black.withValues(alpha: 0.7)],
           ),
         ),
@@ -1069,7 +1173,8 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
       return Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topCenter, end: Alignment.bottomCenter,
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
             colors: [Colors.transparent, Colors.black.withValues(alpha: 0.7)],
           ),
         ),
@@ -1077,7 +1182,8 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
           height: 180,
           child: Center(
             child: SizedBox(
-              width: 24, height: 24,
+              width: 24,
+              height: 24,
               child: CircularProgressIndicator(
                   color: AppTheme.primary, strokeWidth: 2),
             ),
@@ -1091,7 +1197,8 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
       return Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topCenter, end: Alignment.bottomCenter,
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
             colors: [Colors.transparent, Colors.black.withValues(alpha: 0.7)],
           ),
         ),
@@ -1118,7 +1225,8 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          begin: Alignment.topCenter, end: Alignment.bottomCenter,
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
           colors: [Colors.transparent, Colors.black.withValues(alpha: 0.7)],
         ),
       ),
@@ -1158,7 +1266,8 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
                 key: ValueKey('eps_p$_episodePageIndex'),
                 scrollDirection: Axis.horizontal,
                 clipBehavior: Clip.none,
-                padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 36, vertical: 8),
                 itemCount: pageEpisodes.length,
                 itemBuilder: (_, i) {
                   final ep = pageEpisodes[i];
@@ -1169,8 +1278,8 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
                     index: globalIndex,
                     isSelected: isSelected,
                     focusId: 'episode_$globalIndex',
-                    onSelect: () =>
-                        setState(() => _selectedEpisode = isSelected ? null : ep),
+                    onSelect: () => setState(
+                        () => _selectedEpisode = isSelected ? null : ep),
                     onPlay: () => _play(episode: ep),
                     imageHeaders: _svc?.imageHeaders,
                   );
@@ -1198,7 +1307,9 @@ class _TvDetailScreenState extends ConsumerState<TvDetailScreen>
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
-              color: isActive ? AppTheme.primary : Colors.white.withValues(alpha: 0.1),
+              color: isActive
+                  ? AppTheme.primary
+                  : Colors.white.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Text(
@@ -1306,9 +1417,8 @@ class _FocusableButtonState extends State<_FocusableButton> {
             curve: Curves.easeOut,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(8),
-              border: _isFocused
-                  ? Border.all(color: Colors.white, width: 2)
-                  : null,
+              border:
+                  _isFocused ? Border.all(color: Colors.white, width: 2) : null,
             ),
             child: widget.child,
           ),
@@ -1477,9 +1587,8 @@ class _EpisodeCardState extends State<_EpisodeCard> {
                         ? const EdgeInsets.symmetric(horizontal: 8, vertical: 3)
                         : EdgeInsets.zero,
                     decoration: BoxDecoration(
-                      color: active
-                          ? const Color(0xFF6C63FF)
-                          : Colors.transparent,
+                      color:
+                          active ? const Color(0xFF6C63FF) : Colors.transparent,
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
@@ -1627,7 +1736,8 @@ class _FocusableSeasonItemState extends State<_FocusableSeasonItem> {
                   style: TextStyle(
                     color: widget.isSelected ? AppTheme.primary : Colors.white,
                     fontSize: 16,
-                    fontWeight: widget.isSelected ? FontWeight.w700 : FontWeight.w400,
+                    fontWeight:
+                        widget.isSelected ? FontWeight.w700 : FontWeight.w400,
                   ),
                 ),
               ),

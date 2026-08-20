@@ -3,13 +3,27 @@ import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import '../models/media_models.dart';
 import '../utils/app_log.dart';
+import 'server_subtitle_service.dart';
+
+class MediaServerException implements Exception {
+  final String message;
+
+  const MediaServerException(this.message);
+
+  @override
+  String toString() => message;
+}
 
 class ChapterMarker {
   final String name;
   final int startTicks, endTicks;
   final String? markerType;
 
-  const ChapterMarker({required this.name, required this.startTicks, required this.endTicks, this.markerType});
+  const ChapterMarker(
+      {required this.name,
+      required this.startTicks,
+      required this.endTicks,
+      this.markerType});
 
   Duration get startDuration => Duration(microseconds: startTicks ~/ 10);
   Duration get endDuration => Duration(microseconds: endTicks ~/ 10);
@@ -19,20 +33,29 @@ class IntroSkip {
   final int introStartTicks, introEndTicks;
   final int? creditsStartTicks, creditsEndTicks;
 
-  const IntroSkip({required this.introStartTicks, required this.introEndTicks, this.creditsStartTicks, this.creditsEndTicks});
+  const IntroSkip(
+      {required this.introStartTicks,
+      required this.introEndTicks,
+      this.creditsStartTicks,
+      this.creditsEndTicks});
 
-  Duration get introStartDuration => Duration(microseconds: introStartTicks ~/ 10);
+  Duration get introStartDuration =>
+      Duration(microseconds: introStartTicks ~/ 10);
   Duration get introEndDuration => Duration(microseconds: introEndTicks ~/ 10);
-  Duration? get creditsStartDuration => creditsStartTicks != null ? Duration(microseconds: creditsStartTicks! ~/ 10) : null;
-  Duration? get creditsEndDuration => creditsEndTicks != null ? Duration(microseconds: creditsEndTicks! ~/ 10) : null;
+  Duration? get creditsStartDuration => creditsStartTicks != null
+      ? Duration(microseconds: creditsStartTicks! ~/ 10)
+      : null;
+  Duration? get creditsEndDuration => creditsEndTicks != null
+      ? Duration(microseconds: creditsEndTicks! ~/ 10)
+      : null;
   bool get hasIntro => introEndTicks > introStartTicks;
   bool get hasCredits => creditsStartTicks != null;
 }
 
 class TrickplayInfo {
-  final int intervalMs;     // 每张缩略图对应的时间间隔（毫秒）
-  final int tileWidth;      // 拼图网格列数
-  final int tileHeight;     // 拼图网格行数
+  final int intervalMs; // 每张缩略图对应的时间间隔（毫秒）
+  final int tileWidth; // 拼图网格列数
+  final int tileHeight; // 拼图网格行数
   final int thumbnailCount; // 每张精灵图包含的缩略图总数
 
   const TrickplayInfo({
@@ -50,10 +73,10 @@ class TrickplayInfo {
 /// 进度条用此数据从精灵图中裁剪出正确的子图
 class TrickplayTile {
   final String spriteSheetUrl; // 精灵图 URL
-  final int col;              // 列位置（0-indexed）
-  final int row;              // 行位置（0-indexed）
-  final int gridWidth;        // 网格总列数
-  final int gridHeight;       // 网格总行数
+  final int col; // 列位置（0-indexed）
+  final int row; // 行位置（0-indexed）
+  final int gridWidth; // 网格总列数
+  final int gridHeight; // 网格总行数
 
   const TrickplayTile({
     required this.spriteSheetUrl,
@@ -69,9 +92,14 @@ abstract class MediaServerService {
   final Dio dio;
 
   MediaServerService({required this.baseUrl, Dio? dioClient})
-      : dio = dioClient ?? Dio(BaseOptions(baseUrl: baseUrl, connectTimeout: const Duration(seconds: 10), receiveTimeout: const Duration(seconds: 30), headers: {
-          'Accept': 'application/json; charset=utf-8',
-        })) {
+      : dio = dioClient ??
+            Dio(BaseOptions(
+                baseUrl: baseUrl,
+                connectTimeout: const Duration(seconds: 10),
+                receiveTimeout: const Duration(seconds: 30),
+                headers: {
+                  'Accept': 'application/json; charset=utf-8',
+                })) {
     // 401 自愈拦截器：收到 401 → 强制重新登录 → 用新 token 重试原请求一次。
     // 覆盖两种情况：① 从未登录（首页缓存新鲜时跳过登录，service 一直无 token）；
     // ② token 会话中过期。登录请求自身标记 _isLoginRequest 避免递归死锁；
@@ -109,7 +137,8 @@ abstract class MediaServerService {
 
   /// 强制重新认证（401 拦截器调用）。并发 401 共享同一次重登，避免重复登录。
   Future<bool> reAuthenticate() {
-    _reauthFuture ??= doReAuthenticate().whenComplete(() => _reauthFuture = null);
+    _reauthFuture ??=
+        doReAuthenticate().whenComplete(() => _reauthFuture = null);
     return _reauthFuture!;
   }
 
@@ -121,11 +150,20 @@ abstract class MediaServerService {
 
   Future<bool> testConnection();
   Future<List<MediaItem>> getLibraries();
-  Future<List<MediaItem>> getLibraryItems(String libraryId, {int page = 0, int limit = 50, bool includeBoxSets = false});
+  Future<List<MediaItem>> getLibraryItems(String libraryId,
+      {int page = 0, int limit = 50, bool includeBoxSets = false});
+
   /// 分页拉取库内全部条目（单页默认 50 条，大库需要循环分页取全）
-  Future<List<MediaItem>> getAllLibraryItems(String libraryId, {bool includeBoxSets = false});
+  Future<List<MediaItem>> getAllLibraryItems(String libraryId,
+      {bool includeBoxSets = false});
   Future<MediaItem> getItemDetails(String itemId);
-  Future<String> getStreamUrl(String itemId, {String? quality, bool burnInSubtitle = false, int? subtitleIndex});
+  Future<List<ServerSubtitleResult>> searchSubtitles(
+    String itemId, {
+    String? language,
+  });
+  Future<void> deleteItem(String itemId);
+  Future<String> getStreamUrl(String itemId,
+      {String? quality, bool burnInSubtitle = false, int? subtitleIndex});
   Future<List<MediaItem>> search(String query);
 
   /// 相似推荐（Emby/Jellyfin `/Items/{id}/Similar`）
@@ -134,14 +172,17 @@ abstract class MediaServerService {
   Future<void> markWatched(String itemId, {double? progress, int? positionMs});
   Future<void> markUnwatched(String itemId);
   Future<void> reportPlaybackStart(String itemId, {String? mediaSourceId});
-  Future<void> reportPlaybackProgress(String itemId, int positionMs, {bool isPlaying = true, String? mediaSourceId});
-  Future<void> reportPlaybackStopped(String itemId, {int? positionMs, String? mediaSourceId});
+  Future<void> reportPlaybackProgress(String itemId, int positionMs,
+      {bool isPlaying = true, String? mediaSourceId});
+  Future<void> reportPlaybackStopped(String itemId,
+      {int? positionMs, String? mediaSourceId});
   Future<void> markFavorite(String itemId);
   Future<void> unmarkFavorite(String itemId);
   Future<List<ChapterMarker>> getChapters(String itemId);
   Future<IntroSkip?> getIntroSkipInfo(String itemId);
   Future<List<MediaItem>> getSeasons(String seriesId);
-  Future<List<MediaItem>> getEpisodes(String seriesId, {String? seasonId, int? page, int limit = 50});
+  Future<List<MediaItem>> getEpisodes(String seriesId,
+      {String? seasonId, int? page, int limit = 50});
   Future<List<MediaItem>> getResumeItems({int limit = 20});
 
   /// 获取流播放所需的 HTTP 请求头（由子类实现各自的认证方式）
@@ -160,6 +201,13 @@ abstract class MediaServerService {
 }
 
 // ==================== EmbyService ====================
+
+class _CachedAuth {
+  final String apiKey;
+  final String? userId;
+
+  const _CachedAuth(this.apiKey, this.userId);
+}
 
 class EmbyService extends MediaServerService {
   String apiKey;
@@ -183,15 +231,45 @@ class EmbyService extends MediaServerService {
   final Map<String, _CachedSeasons> _seasonsCache = {};
   final Map<String, _CachedEpisodes> _episodesCache = {};
   static const int _cacheDurationMs = 5 * 60 * 1000;
+  static final Map<String, _CachedAuth> _authCache = {};
 
-  EmbyService({required String baseUrl, this.apiKey = '', this.userId, String? username, String? password, Dio? dioClient})
+  Future<bool>? _authFuture; // 登录并发锁，防止多个调用方重复登录
+
+  static String _authCacheKey(
+    String baseUrl,
+    String? username,
+    String? password,
+  ) {
+    // 只在内存中保存配置指纹，避免把密码直接作为缓存键。
+    return Object.hash(baseUrl, username, password).toRadixString(16);
+  }
+
+  String get _currentAuthCacheKey =>
+      _authCacheKey(baseUrl, _username, _password);
+
+  EmbyService(
+      {required String baseUrl,
+      this.apiKey = '',
+      this.userId,
+      String? username,
+      String? password,
+      Dio? dioClient})
       : _username = username,
         _password = password,
         super(baseUrl: baseUrl, dioClient: dioClient) {
+    if (apiKey.isEmpty) {
+      final cachedAuth = _authCache[_currentAuthCacheKey];
+      if (cachedAuth != null) {
+        apiKey = cachedAuth.apiKey;
+        userId ??= cachedAuth.userId;
+        _userIdLoaded = userId != null && userId!.isNotEmpty;
+      }
+    }
     if (apiKey.isNotEmpty) {
       dio.options.headers['X-MediaBrowser-Token'] = apiKey;
     }
-    AppLog.i('Emby', 'init baseUrl=$baseUrl hasKey=${apiKey.isNotEmpty} hasUser=${(username ?? '').isNotEmpty}');
+    AppLog.i('Emby',
+        'init baseUrl=$baseUrl hasKey=${apiKey.isNotEmpty} hasUser=${(username ?? '').isNotEmpty}');
   }
 
   void clearCache() {
@@ -204,9 +282,8 @@ class EmbyService extends MediaServerService {
   Map<String, String> get streamHeaders => {'X-MediaBrowser-Token': apiKey};
 
   @override
-  Map<String, String> get imageHeaders => apiKey.isNotEmpty
-      ? {'X-MediaBrowser-Token': apiKey}
-      : const {};
+  Map<String, String> get imageHeaders =>
+      apiKey.isNotEmpty ? {'X-MediaBrowser-Token': apiKey} : const {};
 
   @override
   Future<bool> ensureAuthenticated() => _ensureAuth();
@@ -228,16 +305,18 @@ class EmbyService extends MediaServerService {
         options: Options(headers: {
           'Content-Type': 'application/json',
           'Authorization': authHeader,
-        }, extra: {'_isLoginRequest': true}),
+        }, extra: {
+          '_isLoginRequest': true
+        }),
       );
 
       final statusCode = response.statusCode ?? 0;
       if (statusCode >= 200 && statusCode < 300 && response.data is Map) {
         final data = response.data as Map;
-        final accessToken = data['AccessToken']?.toString()
-            ?? (data['User'] as Map?)?['AccessToken']?.toString();
-        final userIdStr = (data['User'] as Map?)?['Id']?.toString()
-            ?? data['User']?['Id']?.toString();
+        final accessToken = data['AccessToken']?.toString() ??
+            (data['User'] as Map?)?['AccessToken']?.toString();
+        final userIdStr = (data['User'] as Map?)?['Id']?.toString() ??
+            data['User']?['Id']?.toString();
 
         if (accessToken != null && accessToken.isNotEmpty) {
           apiKey = accessToken;
@@ -246,6 +325,7 @@ class EmbyService extends MediaServerService {
 
           // 更新全局认证头
           dio.options.headers['X-MediaBrowser-Token'] = apiKey;
+          _authCache[_currentAuthCacheKey] = _CachedAuth(apiKey, userId);
 
           AppLog.i('Emby', '用户名密码登录成功: userId=$userId');
           return true;
@@ -261,12 +341,14 @@ class EmbyService extends MediaServerService {
 
   /// 确保已通过认证（有 apiKey）
   /// 如果没有 apiKey 但有用户名密码，则自动登录获取 access token
+  /// 并发锁：多个调用方同时调用时共享同一次登录，避免重复请求
   Future<bool> _ensureAuth() async {
     if (apiKey.isNotEmpty) return true;
-    if (_username != null && _password != null && _username!.isNotEmpty) {
-      return await loginByUsernamePassword();
-    }
-    return false;
+    if (_username == null || _password == null || _username!.isEmpty)
+      return false;
+    _authFuture ??=
+        loginByUsernamePassword().whenComplete(() => _authFuture = null);
+    return _authFuture!;
   }
 
   @override
@@ -280,6 +362,7 @@ class EmbyService extends MediaServerService {
       return apiKey.isNotEmpty; // 无凭据无法重登
     }
     AppLog.i('Emby', '作废旧 token，强制重新登录: $_username');
+    _authCache.remove(_currentAuthCacheKey);
     apiKey = '';
     userId = null;
     _userIdLoaded = false;
@@ -295,8 +378,14 @@ class EmbyService extends MediaServerService {
       if (userId != null && userId!.isNotEmpty) {
         try {
           final r = await dio.get('/Users/$userId');
-          if (r.statusCode == 200) { _userIdLoaded = true; AppLog.i('Emby', 'userId OK: $userId'); return userId!; }
-        } catch (e) { AppLog.w('Emby', '/Users/\$userId failed: $e'); }
+          if (r.statusCode == 200) {
+            _userIdLoaded = true;
+            AppLog.i('Emby', 'userId OK: $userId');
+            return userId!;
+          }
+        } catch (e) {
+          AppLog.w('Emby', '/Users/\$userId failed: $e');
+        }
       }
       final r = await dio.get('/Users');
       final users = (r.data is List) ? (r.data as List) : <dynamic>[];
@@ -307,7 +396,9 @@ class EmbyService extends MediaServerService {
         return userId!;
       }
       AppLog.w('Emby', '/Users returned empty list');
-    } catch (e) { AppLog.e('Emby', '_ensureUserId failed', e); }
+    } catch (e) {
+      AppLog.e('Emby', '_ensureUserId failed', e);
+    }
     _userIdLoaded = true;
     return userId ?? '';
   }
@@ -319,7 +410,10 @@ class EmbyService extends MediaServerService {
       final r = await dio.get('/System/Info');
       AppLog.i('Emby', 'connection OK, server=${r.data['ServerName']}');
       return r.statusCode == 200;
-    } catch (e) { AppLog.e('Emby', 'connection FAILED', e); return false; }
+    } catch (e) {
+      AppLog.e('Emby', 'connection FAILED', e);
+      return false;
+    }
   }
 
   @override
@@ -338,29 +432,48 @@ class EmbyService extends MediaServerService {
       final r = await dio.get('/Users/$userId/Views');
       final items = (r.data['Items'] as List?) ?? [];
       AppLog.i('Emby', 'getLibraries: ${items.length} views');
-      return items.map((i) => MediaItem(id: i['Id'] ?? '', title: i['Name'] ?? '',
-        posterUrl: i['ImageTags']?['Primary'] != null ? '$baseUrl/Items/${i['Id']}/Images/Primary?api_key=$apiKey' : '',
-        type: i['CollectionType'] == 'tvshows' ? MediaType.series : MediaType.movie,
-        collectionType: i['CollectionType']?.toString())).toList();
-    } catch (e) { AppLog.e('Emby', 'getLibraries FAILED', e); return []; }
+      return items
+          .map((i) => MediaItem(
+              id: i['Id'] ?? '',
+              title: i['Name'] ?? '',
+              posterUrl: i['ImageTags']?['Primary'] != null
+                  ? '$baseUrl/Items/${i['Id']}/Images/Primary?api_key=$apiKey'
+                  : '',
+              type: i['CollectionType'] == 'tvshows'
+                  ? MediaType.series
+                  : MediaType.movie,
+              collectionType: i['CollectionType']?.toString()))
+          .toList();
+    } catch (e) {
+      AppLog.e('Emby', 'getLibraries FAILED', e);
+      return [];
+    }
   }
 
   @override
-  Future<List<MediaItem>> getLibraryItems(String libraryId, {int page = 0, int limit = 50, bool includeBoxSets = false}) async {
+  Future<List<MediaItem>> getLibraryItems(String libraryId,
+      {int page = 0, int limit = 50, bool includeBoxSets = false}) async {
     try {
       await _ensureUserId();
       final hasUid = userId != null && userId!.isNotEmpty;
       // Jellyfin 的合集(boxsets)库必须显式 IncludeItemTypes=BoxSet 才返回合集条目
       // （实测 Movie,Series 过滤下返回 0；Emby 则两者都返回），故 boxsets 库追加。
       final itemTypes = includeBoxSets ? 'Movie,Series,BoxSet' : 'Movie,Series';
-      final params = <String, dynamic>{'StartIndex': page * limit, 'Limit': limit, 'Recursive': true,
-        'IncludeItemTypes': itemTypes, 'SortBy': 'DateCreated', 'SortOrder': 'Descending',
-        'Fields': 'Genres,MediaSources,Overview,CommunityRating,ProviderIds'};
+      final params = <String, dynamic>{
+        'StartIndex': page * limit,
+        'Limit': limit,
+        'Recursive': true,
+        'IncludeItemTypes': itemTypes,
+        'SortBy': 'DateCreated',
+        'SortOrder': 'Descending',
+        'Fields': 'Genres,MediaSources,Overview,CommunityRating,ProviderIds'
+      };
       if (libraryId.isNotEmpty) params['ParentId'] = libraryId;
       final path = hasUid ? '/Users/$userId/Items' : '/Items';
       final r = await dio.get(path, queryParameters: params);
       final items = (r.data['Items'] as List?) ?? [];
-      AppLog.i('Emby', 'getLibraryItems($libraryId) uid=$userId: ${items.length} items (boxsets=$includeBoxSets)');
+      AppLog.i('Emby',
+          'getLibraryItems($libraryId) uid=$userId: ${items.length} items (boxsets=$includeBoxSets)');
       return _parseItems(items);
     } catch (e) {
       // 网络/鉴权错误必须向上抛：上层（首页缓存刷新）才能回退到旧数据，
@@ -373,17 +486,20 @@ class EmbyService extends MediaServerService {
   /// 分页拉取库内全部条目：Emby/Jellyfin 单页默认 50 条，大库只取第一页会"少".
   /// （实测 Emby 166 部 / Jellyfin 173 部电影的库，之前都只显示 50）。每页 200 条循环直到取完。
   @override
-  Future<List<MediaItem>> getAllLibraryItems(String libraryId, {bool includeBoxSets = false}) async {
+  Future<List<MediaItem>> getAllLibraryItems(String libraryId,
+      {bool includeBoxSets = false}) async {
     final all = <MediaItem>[];
     var page = 0;
     const perPage = 200;
     while (page < 50) {
-      final batch = await getLibraryItems(libraryId, page: page, limit: perPage, includeBoxSets: includeBoxSets);
+      final batch = await getLibraryItems(libraryId,
+          page: page, limit: perPage, includeBoxSets: includeBoxSets);
       all.addAll(batch);
       if (batch.length < perPage) break;
       page++;
     }
-    AppLog.i('Emby', 'getAllLibraryItems($libraryId): ${all.length} items (${page + 1} 页)');
+    AppLog.i('Emby',
+        'getAllLibraryItems($libraryId): ${all.length} items (${page + 1} 页)');
     return all;
   }
 
@@ -415,12 +531,65 @@ class EmbyService extends MediaServerService {
 
     await _ensureUserId();
     final r = await dio.get('/Users/$userId/Items/$itemId', queryParameters: {
-      'Fields': 'Overview,Genres,People,MediaSources,MediaStreams,ProviderIds,CommunityRating',
+      'Fields':
+          'Overview,Genres,People,MediaSources,MediaStreams,ProviderIds,CommunityRating',
     });
     final item = _parseItem(r.data);
     _detailsCache[itemId] = _CachedDetailItem(item);
-    AppLog.d('Emby', 'getItemDetails cached: $itemId (${_detailsCache.length} items)');
+    AppLog.d('Emby',
+        'getItemDetails cached: $itemId (${_detailsCache.length} items)');
     return item;
+  }
+
+  @override
+  Future<List<ServerSubtitleResult>> searchSubtitles(
+    String itemId, {
+    String? language,
+  }) async {
+    await _ensureUserId();
+    try {
+      final body = <String, dynamic>{
+        if (language != null && language.isNotEmpty) 'Language': language,
+        'IsForced': false,
+        'IsHearingImpaired': false,
+      };
+      final response = await dio.post(
+        '/Items/$itemId/RemoteSearch/Subtitles',
+        data: body,
+        options: Options(contentType: Headers.jsonContentType),
+      );
+      final raw = response.data;
+      final list = raw is List
+          ? raw
+          : raw is Map
+              ? (raw['SearchResults'] ??
+                  raw['Results'] ??
+                  raw['results'] ??
+                  raw['Items'] ??
+                  const [])
+              : const [];
+      return (list is List ? list : const [])
+          .whereType<Map>()
+          .map((entry) => ServerSubtitleResult.fromJson(
+                Map<String, dynamic>.from(entry),
+              ))
+          .where((result) => result.id.isNotEmpty)
+          .toList();
+    } catch (e) {
+      throw MediaServerSubtitleException('字幕搜索失败: $e');
+    }
+  }
+
+  /// 从媒体服务器删除媒体条目（Emby/Jellyfin 通用接口）。
+  @override
+  Future<void> deleteItem(String itemId) async {
+    await _ensureUserId();
+    try {
+      await dio.delete('/Items/$itemId');
+      _detailsCache.remove(itemId);
+    } catch (e) {
+      throw MediaServerException('删除媒体失败: $e');
+    }
   }
 
   /// 画质选项 → MaxStreamingBitrate（bps）：
@@ -444,7 +613,10 @@ class EmbyService extends MediaServerService {
   }
 
   @override
-  Future<String> getStreamUrl(String itemId, {String? quality, bool burnInSubtitle = false, int? subtitleIndex}) async {
+  Future<String> getStreamUrl(String itemId,
+      {String? quality,
+      bool burnInSubtitle = false,
+      int? subtitleIndex}) async {
     await _ensureUserId();
     await _ensureAuth();
     final bitrate = _resolveBitrate(quality);
@@ -474,7 +646,8 @@ class EmbyService extends MediaServerService {
       final playSessionId = r.data['PlaySessionId']?.toString();
       if (mediaSources.isNotEmpty) {
         final sourceId = mediaSources[0]['Id']?.toString() ?? itemId;
-        String url = '$baseUrl/Videos/$itemId/stream?api_key=$apiKey&Static=true'
+        String url =
+            '$baseUrl/Videos/$itemId/stream?api_key=$apiKey&Static=true'
             '&MediaSourceId=$sourceId'
             '&DeviceId=$_playSessionId'
             '$burnQuery';
@@ -490,7 +663,8 @@ class EmbyService extends MediaServerService {
     }
 
     // Fallback: 直接用 itemId 作为 MediaSourceId
-    String url = '$baseUrl/Videos/$itemId/stream?api_key=$apiKey&Static=true&MediaSourceId=$itemId&DeviceId=$_playSessionId$burnQuery';
+    String url =
+        '$baseUrl/Videos/$itemId/stream?api_key=$apiKey&Static=true&MediaSourceId=$itemId&DeviceId=$_playSessionId$burnQuery';
     if (bitrate != null) url += '&MaxStreamingBitrate=$bitrate';
     AppLog.i('Emby', 'streamUrl (fallback): $url');
     return url;
@@ -512,7 +686,8 @@ class EmbyService extends MediaServerService {
         final type = i['Type']?.toString() ?? '';
         return type == 'Movie' || type == 'Series';
       }).toList();
-      AppLog.i('Emby', 'search "$query": ${items.length} total, ${filtered.length} filtered');
+      AppLog.i('Emby',
+          'search "$query": ${items.length} total, ${filtered.length} filtered');
       return _parseItems(filtered);
     } catch (e) {
       AppLog.w('Emby', 'search failed: $e');
@@ -520,11 +695,14 @@ class EmbyService extends MediaServerService {
     }
   }
 
-  @override Future<void> markWatched(String itemId, {double? progress, int? positionMs}) async {
+  @override
+  Future<void> markWatched(String itemId,
+      {double? progress, int? positionMs}) async {
     try {
       final params = <String, dynamic>{};
       if (positionMs != null) {
-        params['PlaybackPositionTicks'] = (positionMs * 10000); // ms → ticks (100ns)
+        params['PlaybackPositionTicks'] =
+            (positionMs * 10000); // ms → ticks (100ns)
       } else if (progress != null) {
         params['PlaybackPositionTicks'] = (progress * 10000000).round();
       }
@@ -535,12 +713,16 @@ class EmbyService extends MediaServerService {
         data: params,
         options: Options(contentType: Headers.jsonContentType),
       );
-      AppLog.d('Emby', 'markWatched: itemId=$itemId, posTicks=${params['PlaybackPositionTicks']}');
-    } catch (e) { AppLog.e('Emby', 'markWatched FAILED: $e'); }
+      AppLog.d('Emby',
+          'markWatched: itemId=$itemId, posTicks=${params['PlaybackPositionTicks']}');
+    } catch (e) {
+      AppLog.e('Emby', 'markWatched FAILED: $e');
+    }
   }
 
   /// 取消已观看（Emby/Jellyfin：UserData Played=false）
-  @override Future<void> markUnwatched(String itemId) async {
+  @override
+  Future<void> markUnwatched(String itemId) async {
     try {
       await dio.post(
         '/Users/$userId/Items/$itemId/UserData',
@@ -548,12 +730,15 @@ class EmbyService extends MediaServerService {
         options: Options(contentType: Headers.jsonContentType),
       );
       AppLog.d('Emby', 'markUnwatched: itemId=$itemId');
-    } catch (e) { AppLog.e('Emby', 'markUnwatched FAILED: $e'); }
+    } catch (e) {
+      AppLog.e('Emby', 'markUnwatched FAILED: $e');
+    }
   }
 
   /// 播放开始上报 — 注册播放会话，使项目出现在"继续观看"列表
   @override
-  Future<void> reportPlaybackStart(String itemId, {String? mediaSourceId}) async {
+  Future<void> reportPlaybackStart(String itemId,
+      {String? mediaSourceId}) async {
     try {
       final data = <String, dynamic>{
         'ItemId': itemId,
@@ -569,13 +754,17 @@ class EmbyService extends MediaServerService {
         data: data,
         options: Options(contentType: Headers.jsonContentType),
       );
-      AppLog.i('Emby', 'reportPlaybackStart OK: itemId=$itemId sessionId=$_playSessionId');
-    } catch (e) { AppLog.e('Emby', 'reportPlaybackStart FAILED: $e'); }
+      AppLog.i('Emby',
+          'reportPlaybackStart OK: itemId=$itemId sessionId=$_playSessionId');
+    } catch (e) {
+      AppLog.e('Emby', 'reportPlaybackStart FAILED: $e');
+    }
   }
 
   /// 播放进度定期上报 — 更新服务器端播放位置
   @override
-  Future<void> reportPlaybackProgress(String itemId, int positionMs, {bool isPlaying = true, String? mediaSourceId}) async {
+  Future<void> reportPlaybackProgress(String itemId, int positionMs,
+      {bool isPlaying = true, String? mediaSourceId}) async {
     try {
       final ticks = positionMs * 10000; // ms → 100ns ticks
       final data = <String, dynamic>{
@@ -593,13 +782,18 @@ class EmbyService extends MediaServerService {
         data: data,
         options: Options(contentType: Headers.jsonContentType),
       );
-      AppLog.d('Emby', 'reportPlaybackProgress: itemId=$itemId, posTicks=$ticks, posMs=$positionMs');
-    } catch (e) { AppLog.e('Emby', 'reportPlaybackProgress FAILED: $e, posMs=$positionMs, ticks=${positionMs * 10000}'); }
+      AppLog.d('Emby',
+          'reportPlaybackProgress: itemId=$itemId, posTicks=$ticks, posMs=$positionMs');
+    } catch (e) {
+      AppLog.e('Emby',
+          'reportPlaybackProgress FAILED: $e, posMs=$positionMs, ticks=${positionMs * 10000}');
+    }
   }
 
   /// 播放停止上报 — 提交最终位置，服务器据此更新"继续观看"进度
   @override
-  Future<void> reportPlaybackStopped(String itemId, {int? positionMs, String? mediaSourceId}) async {
+  Future<void> reportPlaybackStopped(String itemId,
+      {int? positionMs, String? mediaSourceId}) async {
     try {
       final data = <String, dynamic>{
         'ItemId': itemId,
@@ -614,11 +808,26 @@ class EmbyService extends MediaServerService {
         data: data,
         options: Options(contentType: Headers.jsonContentType),
       );
-      AppLog.i('Emby', 'reportPlaybackStopped OK: itemId=$itemId, pos=${positionMs}ms');
-    } catch (e) { AppLog.e('Emby', 'reportPlaybackStopped FAILED: $e'); }
+      AppLog.i('Emby',
+          'reportPlaybackStopped OK: itemId=$itemId, pos=${positionMs}ms');
+    } catch (e) {
+      AppLog.e('Emby', 'reportPlaybackStopped FAILED: $e');
+    }
   }
-  @override Future<void> markFavorite(String itemId) async { try { await dio.post('/Users/$userId/FavoriteItems/$itemId'); } catch (_) {} }
-  @override Future<void> unmarkFavorite(String itemId) async { try { await dio.delete('/Users/$userId/FavoriteItems/$itemId'); } catch (_) {} }
+
+  @override
+  Future<void> markFavorite(String itemId) async {
+    try {
+      await dio.post('/Users/$userId/FavoriteItems/$itemId');
+    } catch (_) {}
+  }
+
+  @override
+  Future<void> unmarkFavorite(String itemId) async {
+    try {
+      await dio.delete('/Users/$userId/FavoriteItems/$itemId');
+    } catch (_) {}
+  }
 
   @override
   Future<List<ChapterMarker>> getChapters(String itemId) async {
@@ -635,7 +844,8 @@ class EmbyService extends MediaServerService {
         final startTicks = (c['StartPositionTicks'] as num?)?.toInt() ?? 0;
         // 用下一章的起始位置作为本章结束，最后一章默认 1s
         final endTicks = (i + 1 < chapters.length)
-            ? ((chapters[i + 1]['StartPositionTicks'] as num?)?.toInt() ?? startTicks + 10000000)
+            ? ((chapters[i + 1]['StartPositionTicks'] as num?)?.toInt() ??
+                startTicks + 10000000)
             : startTicks + 10000000;
         result.add(ChapterMarker(
           name: c['Name']?.toString() ?? '',
@@ -668,7 +878,8 @@ class EmbyService extends MediaServerService {
             final start = (seg['StartTicks'] as num?)?.toInt();
             final end = (seg['EndTicks'] as num?)?.toInt();
             if (start == null || end == null) continue;
-            AppLog.d('Emby', 'MediaSegment: type=$type, start=$start, end=$end');
+            AppLog.d(
+                'Emby', 'MediaSegment: type=$type, start=$start, end=$end');
             if (type == 'intro') {
               introStart = start;
               introEnd = end;
@@ -678,7 +889,8 @@ class EmbyService extends MediaServerService {
             }
           }
           if (introStart != null && introEnd != null && introEnd > introStart) {
-            AppLog.i('Emby', 'IntroSkip via MediaSegments API: intro=$introStart→$introEnd, credits=$creditsStart→$creditsEnd');
+            AppLog.i('Emby',
+                'IntroSkip via MediaSegments API: intro=$introStart→$introEnd, credits=$creditsStart→$creditsEnd');
             return IntroSkip(
               introStartTicks: introStart,
               introEndTicks: introEnd,
@@ -688,7 +900,8 @@ class EmbyService extends MediaServerService {
           }
           // 只有 credits 也返回
           if (creditsStart != null) {
-            AppLog.i('Emby', 'IntroSkip via MediaSegments API (credits only): $creditsStart→$creditsEnd');
+            AppLog.i('Emby',
+                'IntroSkip via MediaSegments API (credits only): $creditsStart→$creditsEnd');
             return IntroSkip(
               introStartTicks: 0,
               introEndTicks: 0,
@@ -708,7 +921,8 @@ class EmbyService extends MediaServerService {
       if (r.statusCode == 200 && r.data is Map) {
         final result = _parseIntroResponse(r.data as Map<String, dynamic>);
         if (result != null) {
-          AppLog.i('Emby', 'IntroSkip via Jellyfin API: intro=${result.hasIntro}, credits=${result.hasCredits}');
+          AppLog.i('Emby',
+              'IntroSkip via Jellyfin API: intro=${result.hasIntro}, credits=${result.hasCredits}');
           return result;
         }
       }
@@ -727,7 +941,8 @@ class EmbyService extends MediaServerService {
         if (r.statusCode == 200 && r.data is Map) {
           final result = _parseIntroResponse(r.data as Map<String, dynamic>);
           if (result != null) {
-            AppLog.i('Emby', 'IntroSkip via Emby plugin ($path): intro=${result.hasIntro}');
+            AppLog.i('Emby',
+                'IntroSkip via Emby plugin ($path): intro=${result.hasIntro}');
             return result;
           }
         }
@@ -778,20 +993,26 @@ class EmbyService extends MediaServerService {
     // 合理性校验：片头必须在前 25%；片尾必须在后 50% 且晚于片头结束。
     // 异常位置直接丢弃对应标记，宁缺毋滥（避免乱跳过）。
     if (durTicks != null && durTicks > 0) {
-      if (introStart != null && introEnd != null && introEnd > durTicks * 25 ~/ 100) {
-        AppLog.w('Emby', 'IntroSkip chapters: intro 位置异常（${introEnd}ms > 前25%），丢弃 intro');
+      if (introStart != null &&
+          introEnd != null &&
+          introEnd > durTicks * 25 ~/ 100) {
+        AppLog.w('Emby',
+            'IntroSkip chapters: intro 位置异常（${introEnd}ms > 前25%），丢弃 intro');
         introStart = null;
         introEnd = null;
       }
       if (creditsStart != null &&
-          (creditsStart < durTicks ~/ 2 || (introEnd != null && creditsStart <= introEnd))) {
-        AppLog.w('Emby', 'IntroSkip chapters: credits 位置异常（${creditsStart}ms），丢弃 credits');
+          (creditsStart < durTicks ~/ 2 ||
+              (introEnd != null && creditsStart <= introEnd))) {
+        AppLog.w('Emby',
+            'IntroSkip chapters: credits 位置异常（${creditsStart}ms），丢弃 credits');
         creditsStart = null;
         creditsEnd = null;
       }
     }
     if (introStart != null && introEnd != null && introEnd > introStart) {
-      AppLog.i('Emby', 'IntroSkip via chapters: intro=$introStart→$introEnd, credits=$creditsStart→$creditsEnd');
+      AppLog.i('Emby',
+          'IntroSkip via chapters: intro=$introStart→$introEnd, credits=$creditsStart→$creditsEnd');
       return IntroSkip(
         introStartTicks: introStart,
         introEndTicks: introEnd,
@@ -801,7 +1022,8 @@ class EmbyService extends MediaServerService {
     }
     // 只有 credits 也返回（可能电影只有片尾）
     if (creditsStart != null) {
-      AppLog.i('Emby', 'IntroSkip via chapters (credits only): $creditsStart→$creditsEnd');
+      AppLog.i('Emby',
+          'IntroSkip via chapters (credits only): $creditsStart→$creditsEnd');
       return IntroSkip(
         introStartTicks: 0,
         introEndTicks: 0,
@@ -809,7 +1031,8 @@ class EmbyService extends MediaServerService {
         creditsEndTicks: creditsEnd,
       );
     }
-    AppLog.i('Emby', 'IntroSkip: 未检测到片头片尾信息 (itemId=$itemId, chapters=${ch.length})');
+    AppLog.i('Emby',
+        'IntroSkip: 未检测到片头片尾信息 (itemId=$itemId, chapters=${ch.length})');
     return null;
   }
 
@@ -817,7 +1040,8 @@ class EmbyService extends MediaServerService {
   Future<int?> _getItemRunTimeTicks(String itemId) async {
     try {
       await _ensureUserId();
-      final r = await dio.get('/Users/$userId/Items/$itemId', queryParameters: {'Fields': 'Chapters'});
+      final r = await dio.get('/Users/$userId/Items/$itemId',
+          queryParameters: {'Fields': 'Chapters'});
       return (r.data['RunTimeTicks'] as num?)?.toInt();
     } catch (_) {
       return null;
@@ -830,17 +1054,17 @@ class EmbyService extends MediaServerService {
 
     // Jellyfin IntroSkipper: IntroStart / IntroEnd (ticks)
     // Emby 插件变体: IntroStartTicks / IntroEndTicks
-    introStart = (data['IntroStart'] as num?)?.toInt()
-        ?? (data['IntroStartTicks'] as num?)?.toInt()
-        ?? (data['intro_start'] as num?)?.toInt();
-    introEnd = (data['IntroEnd'] as num?)?.toInt()
-        ?? (data['IntroEndTicks'] as num?)?.toInt()
-        ?? (data['intro_end'] as num?)?.toInt();
+    introStart = (data['IntroStart'] as num?)?.toInt() ??
+        (data['IntroStartTicks'] as num?)?.toInt() ??
+        (data['intro_start'] as num?)?.toInt();
+    introEnd = (data['IntroEnd'] as num?)?.toInt() ??
+        (data['IntroEndTicks'] as num?)?.toInt() ??
+        (data['intro_end'] as num?)?.toInt();
 
     // Credits
-    creditsStart = (data['CreditsStart'] as num?)?.toInt()
-        ?? (data['CreditsStartTicks'] as num?)?.toInt()
-        ?? (data['credits_start'] as num?)?.toInt();
+    creditsStart = (data['CreditsStart'] as num?)?.toInt() ??
+        (data['CreditsStartTicks'] as num?)?.toInt() ??
+        (data['credits_start'] as num?)?.toInt();
 
     if (introStart != null && introEnd != null && introEnd > introStart) {
       return IntroSkip(
@@ -863,42 +1087,60 @@ class EmbyService extends MediaServerService {
     }
     // 不吞错：HTTP 错误/网络错误向上抛出，让 UI 能区分"加载失败"与"无数据"
     await _ensureUserId();
-    final r = await dio.get('/Shows/$seriesId/Seasons', queryParameters: {'UserId': userId, 'Fields': 'Overview'});
+    final r = await dio.get('/Shows/$seriesId/Seasons',
+        queryParameters: {'UserId': userId, 'Fields': 'Overview'});
     _throwIfHttpError(r);
-    final seasons = ((r.data['Items'] as List?) ?? []).map((i) => _parseItem({
-      'Id': i['Id'] ?? '', 'Name': i['Name'] ?? '', 'Type': 'Season', 'IndexNumber': i['IndexNumber'],
-      'ImageTags': {'Primary': i['ImageTags']?['Primary'] ?? ''}, 'Overview': i['Overview'],
-    })).toList();
+    final seasons = ((r.data['Items'] as List?) ?? [])
+        .map((i) => _parseItem({
+              'Id': i['Id'] ?? '',
+              'Name': i['Name'] ?? '',
+              'Type': 'Season',
+              'IndexNumber': i['IndexNumber'],
+              'ImageTags': {'Primary': i['ImageTags']?['Primary'] ?? ''},
+              'Overview': i['Overview'],
+            }))
+        .toList();
     // 只缓存非空结果，避免 401/网络错误返回的空列表被负缓存
     if (seasons.isNotEmpty) {
       _seasonsCache[cacheKey] = _CachedSeasons(seasons);
-      AppLog.d('Emby', 'getSeasons cached: $seriesId (${seasons.length} seasons)');
+      AppLog.d(
+          'Emby', 'getSeasons cached: $seriesId (${seasons.length} seasons)');
     }
     return seasons;
   }
 
   @override
-  Future<List<MediaItem>> getEpisodes(String seriesId, {String? seasonId, int? page, int limit = 50}) async {
+  Future<List<MediaItem>> getEpisodes(String seriesId,
+      {String? seasonId, int? page, int limit = 50}) async {
     final cacheKey = '${seriesId}_${seasonId ?? ''}_$limit';
     final cached = _episodesCache[cacheKey];
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (cached != null && now - cached.timestamp < _cacheDurationMs && page == null) {
+    if (cached != null &&
+        now - cached.timestamp < _cacheDurationMs &&
+        page == null) {
       AppLog.d('Emby', 'getEpisodes cache hit: $cacheKey');
       return cached.episodes;
     }
     // 不吞错：HTTP 错误/网络错误向上抛出，让 UI 能区分"加载失败"与"无数据"
     await _ensureUserId();
-    final params = <String, dynamic>{'UserId': userId, 'Fields': 'Overview,MediaSources', 'SortBy': 'SortName', 'Limit': limit};
+    final params = <String, dynamic>{
+      'UserId': userId,
+      'Fields': 'Overview,MediaSources',
+      'SortBy': 'SortName',
+      'Limit': limit
+    };
     if (seasonId != null) params['SeasonId'] = seasonId;
     if (page != null) params['StartIndex'] = page * limit;
-    final r = await dio.get('/Shows/$seriesId/Episodes', queryParameters: params);
+    final r =
+        await dio.get('/Shows/$seriesId/Episodes', queryParameters: params);
     _throwIfHttpError(r);
     final episodes = _parseItems((r.data['Items'] as List?) ?? []);
     _sortEpisodes(episodes);
     // 只缓存非空结果，避免 401/网络错误返回的空列表被负缓存
     if (page == null && episodes.isNotEmpty) {
       _episodesCache[cacheKey] = _CachedEpisodes(episodes);
-      AppLog.d('Emby', 'getEpisodes cached: $cacheKey (${episodes.length} episodes)');
+      AppLog.d('Emby',
+          'getEpisodes cached: $cacheKey (${episodes.length} episodes)');
     }
     return episodes;
   }
@@ -929,7 +1171,8 @@ class EmbyService extends MediaServerService {
     }
   }
 
-  List<MediaItem> _parseItems(List items) => items.map((i) => _parseItem(i)).toList();
+  List<MediaItem> _parseItems(List items) =>
+      items.map((i) => _parseItem(i)).toList();
 
   @override
   Future<List<MediaItem>> getResumeItems({int limit = 20}) async {
@@ -940,15 +1183,20 @@ class EmbyService extends MediaServerService {
         'IncludeItemTypes': 'Movie,Episode',
         'Recursive': true,
         'EnableTotalRecordCount': false,
-        'Fields': 'Overview,Genres,MediaSources,CommunityRating,ProviderIds,SeriesId,SeasonId,EpisodeNumber',
+        'Fields':
+            'Overview,Genres,MediaSources,CommunityRating,ProviderIds,SeriesId,SeasonId,EpisodeNumber',
       });
       final items = (r.data['Items'] as List?) ?? [];
       AppLog.i('Emby', 'getResumeItems: ${items.length} items');
       for (final it in items) {
-        AppLog.d('Emby', '  resume: ${it['Name']} (${it['Type']}, id=${it['Id']}, hasImage=${it['ImageTags']?['Primary'] != null})');
+        AppLog.d('Emby',
+            '  resume: ${it['Name']} (${it['Type']}, id=${it['Id']}, hasImage=${it['ImageTags']?['Primary'] != null})');
       }
       return _parseItems(items);
-    } catch (e) { AppLog.e('Emby', 'getResumeItems FAILED: $e'); return []; }
+    } catch (e) {
+      AppLog.e('Emby', 'getResumeItems FAILED: $e');
+      return [];
+    }
   }
 
   MediaItem _parseItem(dynamic item) {
@@ -956,7 +1204,8 @@ class EmbyService extends MediaServerService {
     final mediaSources = (m['MediaSources'] as List?) ?? [];
     final firstSource = mediaSources.isNotEmpty ? mediaSources.first : null;
     final providerIds = m['ProviderIds'] as Map?;
-    final tmdbIdStr = providerIds?['Tmdb']?.toString() ?? providerIds?['TMDB']?.toString();
+    final tmdbIdStr =
+        providerIds?['Tmdb']?.toString() ?? providerIds?['TMDB']?.toString();
     final tmdbId = tmdbIdStr != null ? int.tryParse(tmdbIdStr) : null;
     final userData = m['UserData'];
     final playbackTicks = userData?['PlaybackPositionTicks'];
@@ -966,18 +1215,31 @@ class EmbyService extends MediaServerService {
       watchProgress = (playbackTicks / runTimeTicks).toDouble().clamp(0.0, 1.0);
     }
     return MediaItem(
-      id: m['Id']?.toString() ?? '', title: m['Name'] ?? '',
-      posterUrl: m['ImageTags']?['Primary'] != null ? '$baseUrl/Items/${m['Id']}/Images/Primary?api_key=$apiKey' : '',
-      backdropUrl: m['BackdropImageTags']?.isNotEmpty == true ? '$baseUrl/Items/${m['Id']}/Images/Backdrop/0?api_key=$apiKey' : null,
-      overview: m['Overview'], rating: (m['CommunityRating'] as num?)?.toDouble(),
-      year: m['ProductionYear'], genres: (m['Genres'] as List?)?.map((e) => e.toString()).toList() ?? [],
-      type: m['Type'] == 'Series' ? MediaType.series : m['Type'] == 'Episode' ? MediaType.episode : MediaType.movie,
+      id: m['Id']?.toString() ?? '',
+      title: m['Name'] ?? '',
+      posterUrl: m['ImageTags']?['Primary'] != null
+          ? '$baseUrl/Items/${m['Id']}/Images/Primary?api_key=$apiKey'
+          : '',
+      backdropUrl: m['BackdropImageTags']?.isNotEmpty == true
+          ? '$baseUrl/Items/${m['Id']}/Images/Backdrop/0?api_key=$apiKey'
+          : null,
+      overview: m['Overview'],
+      rating: (m['CommunityRating'] as num?)?.toDouble(),
+      year: m['ProductionYear'],
+      genres: (m['Genres'] as List?)?.map((e) => e.toString()).toList() ?? [],
+      type: m['Type'] == 'Series'
+          ? MediaType.series
+          : m['Type'] == 'Episode'
+              ? MediaType.episode
+              : MediaType.movie,
       isBoxSet: m['Type'] == 'BoxSet',
       seasonNumber: m['ParentIndexNumber'] ?? m['SeasonNumber'],
       episodeNumber: m['IndexNumber'] ?? m['EpisodeNumber'],
       seriesTitle: m['SeriesName'],
       seriesId: m['SeriesId']?.toString(),
-      duration: m['RunTimeTicks'] != null ? (m['RunTimeTicks'] / 10000000).toInt() : 0,
+      duration: m['RunTimeTicks'] != null
+          ? (m['RunTimeTicks'] / 10000000).toInt()
+          : 0,
       imdbId: providerIds?['Imdb']?.toString(),
       tmdbId: tmdbId,
       isWatched: userData?['Played'] ?? false,
@@ -990,8 +1252,16 @@ class EmbyService extends MediaServerService {
       audioTracks: _extractStreams(m, 'Audio'),
       subtitleTracks: _extractStreams(m, 'Subtitle'),
       people: _extractPeopleFull(m)?.map((p) {
-        if (p['PrimaryImageTag'] != null) {
-          p['ImageUrl'] = '$baseUrl/Persons/${p['Id']}/Images/Primary?api_key=$apiKey&Tag=${p['PrimaryImageTag']}';
+        final imageTag = p['PrimaryImageTag']?.toString().trim();
+        final personId = p['Id']?.toString().trim();
+        if (imageTag != null &&
+            imageTag.isNotEmpty &&
+            personId != null &&
+            personId.isNotEmpty) {
+          p['ImageUrl'] =
+              '$baseUrl/Items/${Uri.encodeComponent(personId)}/Images/Primary'
+              '?api_key=${Uri.encodeQueryComponent(apiKey)}'
+              '&Tag=${Uri.encodeQueryComponent(imageTag)}';
         }
         return p;
       }).toList(),
@@ -999,25 +1269,35 @@ class EmbyService extends MediaServerService {
   }
 
   List<String>? _extractPeople(Map m, String type) {
-    final p = (m['People'] as List?)?.where((e) => e['Type'] == type).map((e) => e['Name']?.toString() ?? '').where((n) => n.isNotEmpty).toList();
+    final p = (m['People'] as List?)
+        ?.where((e) => e['Type'] == type)
+        .map((e) => e['Name']?.toString() ?? '')
+        .where((n) => n.isNotEmpty)
+        .toList();
     return p != null && p.isNotEmpty ? p : null;
   }
 
   List<Map<String, dynamic>>? _extractPeopleFull(Map m) {
-    final p = (m['People'] as List?)?.map((e) => {
-      'Id': e['Id']?.toString() ?? '',
-      'Name': e['Name']?.toString() ?? '',
-      'Role': e['Role']?.toString() ?? e['Type']?.toString() ?? '',
-      'Type': e['Type']?.toString() ?? '',
-      'PrimaryImageTag': e['PrimaryImageTag']?.toString(),
-    }).where((e) => (e['Name'] as String).isNotEmpty).toList();
+    final p = (m['People'] as List?)
+        ?.map((e) => {
+              'Id': e['Id']?.toString() ?? '',
+              'Name': e['Name']?.toString() ?? '',
+              'Role': e['Role']?.toString() ?? e['Type']?.toString() ?? '',
+              'Type': e['Type']?.toString() ?? '',
+              'PrimaryImageTag': e['PrimaryImageTag']?.toString(),
+            })
+        .where((e) => (e['Name'] as String).isNotEmpty)
+        .toList();
     return p != null && p.isNotEmpty ? p : null;
   }
 
   List<Map<String, dynamic>>? _extractStreams(Map m, String type) {
     final s = (m['MediaSources'] as List?)?.firstOrNull;
     if (s == null) return null;
-    final streams = (s['MediaStreams'] as List?)?.where((e) => e['Type'] == type).map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e)).toList();
+    final streams = (s['MediaStreams'] as List?)
+        ?.where((e) => e['Type'] == type)
+        .map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e))
+        .toList();
     return streams != null && streams.isNotEmpty ? streams : null;
   }
 }
@@ -1025,36 +1305,53 @@ class EmbyService extends MediaServerService {
 class _CachedDetailItem {
   final MediaItem item;
   final int timestamp;
-  _CachedDetailItem(this.item) : timestamp = DateTime.now().millisecondsSinceEpoch;
+  _CachedDetailItem(this.item)
+      : timestamp = DateTime.now().millisecondsSinceEpoch;
 }
 
 class _CachedSeasons {
   final List<MediaItem> seasons;
   final int timestamp;
-  _CachedSeasons(this.seasons) : timestamp = DateTime.now().millisecondsSinceEpoch;
+  _CachedSeasons(this.seasons)
+      : timestamp = DateTime.now().millisecondsSinceEpoch;
 }
 
 class _CachedEpisodes {
   final List<MediaItem> episodes;
   final int timestamp;
-  _CachedEpisodes(this.episodes) : timestamp = DateTime.now().millisecondsSinceEpoch;
+  _CachedEpisodes(this.episodes)
+      : timestamp = DateTime.now().millisecondsSinceEpoch;
 }
 
 // ==================== JellyfinService ====================
 
 class JellyfinService extends EmbyService {
-  JellyfinService({required String baseUrl, String apiKey = '', String? userId, String? username, String? password, Dio? dioClient})
-      : super(baseUrl: baseUrl, apiKey: apiKey, userId: userId, username: username, password: password, dioClient: dioClient) {
+  JellyfinService(
+      {required String baseUrl,
+      String apiKey = '',
+      String? userId,
+      String? username,
+      String? password,
+      Dio? dioClient})
+      : super(
+            baseUrl: baseUrl,
+            apiKey: apiKey,
+            userId: userId,
+            username: username,
+            password: password,
+            dioClient: dioClient) {
     // EmbyService 构造函数已设置 X-MediaBrowser-Token
     // 追加 X-Emby-Token（Jellyfin 专用），同时保留 X-MediaBrowser-Token（兼容 Emby 服务器）
     dio.options.headers['X-Emby-Token'] = apiKey;
     // 兜底：默认 query 参数带上 api_key，兼容仅接受 URL 参数认证的服务器
     dio.options.queryParameters['api_key'] = apiKey;
-    AppLog.i('Jellyfin', 'init baseUrl=$baseUrl (dual auth: X-MediaBrowser-Token + X-Emby-Token + api_key)');
+    AppLog.i('Jellyfin',
+        'init baseUrl=$baseUrl (dual auth: X-MediaBrowser-Token + X-Emby-Token + api_key)');
   }
 
   @override
-  Map<String, String> get streamHeaders => {'X-Emby-Token': apiKey, 'X-MediaBrowser-Token': apiKey};
+  Map<String, String> get streamHeaders =>
+      {'X-Emby-Token': apiKey, 'X-MediaBrowser-Token': apiKey};
 
   @override
   Map<String, String> get imageHeaders => apiKey.isNotEmpty
@@ -1113,7 +1410,8 @@ class JellyfinService extends EmbyService {
             intervalMs: (widthMap['Interval'] as num?)?.toInt() ?? 10000,
             tileWidth: (widthMap['TileWidth'] as num?)?.toInt() ?? 10,
             tileHeight: (widthMap['TileHeight'] as num?)?.toInt() ?? 10,
-            thumbnailCount: (widthMap['ThumbnailCount'] as num?)?.toInt() ?? 100,
+            thumbnailCount:
+                (widthMap['ThumbnailCount'] as num?)?.toInt() ?? 100,
           );
         }
       }
@@ -1140,10 +1438,16 @@ class JellyfinService extends EmbyService {
         final users = r.data as List;
         if (users.isNotEmpty) {
           userId = users.first['Id']?.toString() ?? '';
-          if (userId!.isNotEmpty) { _userIdLoaded = true; AppLog.i('Jellyfin', 'userId: $userId'); return userId!; }
+          if (userId!.isNotEmpty) {
+            _userIdLoaded = true;
+            AppLog.i('Jellyfin', 'userId: $userId');
+            return userId!;
+          }
         }
       }
-    } catch (e) { AppLog.w('Jellyfin', '/Users failed: $e'); }
+    } catch (e) {
+      AppLog.w('Jellyfin', '/Users failed: $e');
+    }
     _userIdLoaded = true;
     return userId ?? '';
   }
@@ -1191,6 +1495,7 @@ class FnOSService extends EmbyService {
 
   /// 当前是否运行在 Jellyfin 兼容模式
   bool get isJellyfinMode => _jellyfinMode;
+
   /// 公开 token 的只读访问
   String? get token => _jellyfinMode ? apiKey : _fnosToken;
 
@@ -1235,7 +1540,8 @@ class FnOSService extends EmbyService {
       return apiKey.isNotEmpty ? {'X-Emby-Token': apiKey} : const {};
     }
     final h = <String, String>{};
-    if (_fnosToken != null && _fnosToken!.isNotEmpty) h['Authorization'] = _fnosToken!;
+    if (_fnosToken != null && _fnosToken!.isNotEmpty)
+      h['Authorization'] = _fnosToken!;
     if (_cookie != null && _cookie!.isNotEmpty) h['Cookie'] = _cookie!;
     return h;
   }
@@ -1244,7 +1550,8 @@ class FnOSService extends EmbyService {
   @override
   Future<bool> doReAuthenticate() async {
     if (username == null || username!.isEmpty) {
-      return (_jellyfinMode && apiKey.isNotEmpty) || (_fnosToken?.isNotEmpty == true);
+      return (_jellyfinMode && apiKey.isNotEmpty) ||
+          (_fnosToken?.isNotEmpty == true);
     }
     AppLog.i('FnOS', '作废旧 token，强制重新登录: $username');
     _fnosToken = null;
@@ -1257,7 +1564,8 @@ class FnOSService extends EmbyService {
     return await login();
   }
 
-  FnOSService({required String baseUrl, this.username, this.password, Dio? dioClient})
+  FnOSService(
+      {required String baseUrl, this.username, this.password, Dio? dioClient})
       : super(baseUrl: baseUrl, apiKey: '', dioClient: dioClient) {
     // 接受所有状态码，便于读取非 200 响应体进行调试
     dio.options.validateStatus = (_) => true;
@@ -1296,7 +1604,8 @@ class FnOSService extends EmbyService {
     AppLog.i('FnOS', '尝试 Jellyfin 兼容认证...');
     try {
       final deviceId = 'LANPlayer_${DateTime.now().millisecondsSinceEpoch}';
-      final authHeader = 'MediaBrowser Client="FnOSPlayer", Device="LANPlayer", '
+      final authHeader =
+          'MediaBrowser Client="FnOSPlayer", Device="LANPlayer", '
           'DeviceId="$deviceId", Version="1.0.0"';
       final response = await dio.post(
         '$baseUrl/Users/AuthenticateByName',
@@ -1304,16 +1613,18 @@ class FnOSService extends EmbyService {
         options: Options(headers: {
           'Content-Type': 'application/json',
           'Authorization': authHeader,
-        }, extra: {'_isLoginRequest': true}),
+        }, extra: {
+          '_isLoginRequest': true
+        }),
       );
 
       final statusCode = response.statusCode ?? 0;
       if (statusCode >= 200 && statusCode < 300 && response.data is Map) {
         final data = response.data as Map;
-        final accessToken = data['AccessToken']?.toString()
-            ?? (data['User'] as Map?)?['AccessToken']?.toString();
-        final userIdStr = (data['User'] as Map?)?['Id']?.toString()
-            ?? data['User']?['Id']?.toString();
+        final accessToken = data['AccessToken']?.toString() ??
+            (data['User'] as Map?)?['AccessToken']?.toString();
+        final userIdStr = (data['User'] as Map?)?['Id']?.toString() ??
+            data['User']?['Id']?.toString();
 
         if (accessToken != null && accessToken.isNotEmpty) {
           _jellyfinMode = true;
@@ -1340,7 +1651,8 @@ class FnOSService extends EmbyService {
         }
       }
 
-      AppLog.w('FnOS', 'Jellyfin 认证失败: HTTP $statusCode, body=${response.data}');
+      AppLog.w(
+          'FnOS', 'Jellyfin 认证失败: HTTP $statusCode, body=${response.data}');
     } catch (e) {
       AppLog.w('FnOS', 'Jellyfin 认证异常: $e');
     }
@@ -1350,7 +1662,8 @@ class FnOSService extends EmbyService {
   /// 飞牛专有 API 登录：POST /v/api/v1/login
   /// 参考 FlyNarwhal login_view_model.dart
   Future<bool> _tryFnOSLogin() async {
-    AppLog.i('FnOS', '尝试飞牛专有 API 登录: ${_isRelayMode ? "relay" : "direct"} mode');
+    AppLog.i(
+        'FnOS', '尝试飞牛专有 API 登录: ${_isRelayMode ? "relay" : "direct"} mode');
     const loginPath = '/v/api/v1/login';
     final url = '$baseUrl$loginPath';
 
@@ -1370,7 +1683,9 @@ class FnOSService extends EmbyService {
           'Accept': 'application/json',
           'User-Agent': _userAgent,
           'Authx': authx,
-        }, extra: {'_isLoginRequest': true}),
+        }, extra: {
+          '_isLoginRequest': true
+        }),
       );
 
       final statusCode = response.statusCode ?? 0;
@@ -1411,7 +1726,8 @@ class FnOSService extends EmbyService {
           ? 'Trim-MC-token=$token; mode=relay'
           : 'Trim-MC-token=$token';
 
-      AppLog.i('FnOS', '飞牛 API 登录成功: tokenLen=${token.length} relay=$_isRelayMode');
+      AppLog.i(
+          'FnOS', '飞牛 API 登录成功: tokenLen=${token.length} relay=$_isRelayMode');
       return true;
     } catch (e) {
       AppLog.w('FnOS', '登录异常 $url: $e');
@@ -1425,7 +1741,9 @@ class FnOSService extends EmbyService {
   Future<bool> _ensureAuth() async {
     if (_jellyfinMode) return apiKey.isNotEmpty;
     if (_fnosToken != null && _fnosToken!.isNotEmpty) return true;
-    return await login();
+    // 并发锁：复用父类 _authFuture，多个调用方共享同一次登录
+    _authFuture ??= login().whenComplete(() => _authFuture = null);
+    return _authFuture!;
   }
 
   // ==================== 连接测试 ====================
@@ -1470,7 +1788,9 @@ class FnOSService extends EmbyService {
         final category = m['category']?.toString().toLowerCase() ?? '';
         final viewType = m['view_type'];
         _libraryCategoryCache[guid] = category;
-        final type = category.contains('tv') || category.contains('series') || viewType == 1
+        final type = category.contains('tv') ||
+                category.contains('series') ||
+                viewType == 1
             ? MediaType.series
             : MediaType.movie;
         return MediaItem(
@@ -1487,8 +1807,11 @@ class FnOSService extends EmbyService {
   }
 
   @override
-  Future<List<MediaItem>> getLibraryItems(String libraryId, {int page = 0, int limit = 50, bool includeBoxSets = false}) async {
-    if (_jellyfinMode) return super.getLibraryItems(libraryId, page: page, limit: limit, includeBoxSets: includeBoxSets);
+  Future<List<MediaItem>> getLibraryItems(String libraryId,
+      {int page = 0, int limit = 50, bool includeBoxSets = false}) async {
+    if (_jellyfinMode)
+      return super.getLibraryItems(libraryId,
+          page: page, limit: limit, includeBoxSets: includeBoxSets);
     await _ensureAuth();
     try {
       // 根据媒体库 category 决定 tags.type 过滤，避免返回 Season/Episode 子条目
@@ -1532,7 +1855,8 @@ class FnOSService extends EmbyService {
   }
 
   @override
-  Future<List<MediaItem>> getAllLibraryItems(String libraryId, {bool includeBoxSets = false}) async {
+  Future<List<MediaItem>> getAllLibraryItems(String libraryId,
+      {bool includeBoxSets = false}) async {
     // FnOS 的 getLibraryItems 内部已按页取全量且忽略 page/limit 参数，
     // 直接返回即可；若用父类循环分页会对同一批数据重复追加。
     return getLibraryItems(libraryId, includeBoxSets: includeBoxSets);
@@ -1548,8 +1872,15 @@ class FnOSService extends EmbyService {
   }
 
   @override
-  Future<String> getStreamUrl(String itemId, {String? quality, bool burnInSubtitle = false, int? subtitleIndex}) async {
-    if (_jellyfinMode) return super.getStreamUrl(itemId, quality: quality, burnInSubtitle: burnInSubtitle, subtitleIndex: subtitleIndex);
+  Future<String> getStreamUrl(String itemId,
+      {String? quality,
+      bool burnInSubtitle = false,
+      int? subtitleIndex}) async {
+    if (_jellyfinMode)
+      return super.getStreamUrl(itemId,
+          quality: quality,
+          burnInSubtitle: burnInSubtitle,
+          subtitleIndex: subtitleIndex);
     await _ensureAuth();
     // POST /v/api/v1/play/info  body: {item_guid: itemId}
     // 响应中包含 media_guid，用于构造 /media/range/ 流地址
@@ -1575,7 +1906,8 @@ class FnOSService extends EmbyService {
       // 再尝试 play_link
       final playLink = res['play_link']?.toString();
       if (playLink != null && playLink.isNotEmpty) {
-        final url = playLink.startsWith('http') ? playLink : '$baseUrl$playLink';
+        final url =
+            playLink.startsWith('http') ? playLink : '$baseUrl$playLink';
         AppLog.i('FnOS', 'streamUrl (play_link): $url');
         return url;
       }
@@ -1586,7 +1918,8 @@ class FnOSService extends EmbyService {
     return fallback;
   }
 
-  Future<String> getDirectStreamUrl(String itemId) async => getStreamUrl(itemId);
+  Future<String> getDirectStreamUrl(String itemId) async =>
+      getStreamUrl(itemId);
 
   @override
   Future<List<MediaItem>> search(String query) async {
@@ -1607,8 +1940,11 @@ class FnOSService extends EmbyService {
   }
 
   @override
-  Future<void> markWatched(String itemId, {double? progress, int? positionMs}) async {
-    if (_jellyfinMode) return super.markWatched(itemId, progress: progress, positionMs: positionMs);
+  Future<void> markWatched(String itemId,
+      {double? progress, int? positionMs}) async {
+    if (_jellyfinMode)
+      return super
+          .markWatched(itemId, progress: progress, positionMs: positionMs);
     await _ensureAuth();
     try {
       // 上报播放进度（用于"继续观看"）
@@ -1656,7 +1992,8 @@ class FnOSService extends EmbyService {
     await _ensureAuth();
     try {
       // PUT /v/api/v1/item/favorite  body: {item_guid}
-      await _fnosRequest('/item/favorite', data: {'item_guid': itemId}, method: 'PUT');
+      await _fnosRequest('/item/favorite',
+          data: {'item_guid': itemId}, method: 'PUT');
     } catch (e) {
       AppLog.w('FnOS', 'markFavorite failed: $e');
     }
@@ -1668,7 +2005,8 @@ class FnOSService extends EmbyService {
     await _ensureAuth();
     try {
       // DELETE /v/api/v1/item/favorite  body: {item_guid}
-      await _fnosRequest('/item/favorite', data: {'item_guid': itemId}, method: 'DELETE');
+      await _fnosRequest('/item/favorite',
+          data: {'item_guid': itemId}, method: 'DELETE');
     } catch (e) {
       AppLog.w('FnOS', 'unmarkFavorite failed: $e');
     }
@@ -1715,8 +2053,11 @@ class FnOSService extends EmbyService {
   }
 
   @override
-  Future<List<MediaItem>> getEpisodes(String seriesId, {String? seasonId, int? page, int limit = 50}) async {
-    if (_jellyfinMode) return super.getEpisodes(seriesId, seasonId: seasonId, page: page, limit: limit);
+  Future<List<MediaItem>> getEpisodes(String seriesId,
+      {String? seasonId, int? page, int limit = 50}) async {
+    if (_jellyfinMode)
+      return super
+          .getEpisodes(seriesId, seasonId: seasonId, page: page, limit: limit);
     await _ensureAuth();
     // GET /v/api/v1/episode/list/{guid}
     // seasonId 优先；否则使用 seriesId
@@ -1797,7 +2138,8 @@ class FnOSService extends EmbyService {
   /// 生成 Authx 头值（参考 FlyNarwhalAuthHelper.generateAuthx）
   /// 算法：MD5(apiKey_path_nonce_timestamp_dataJsonMd5_apiSecret)
   /// 其中 dataJsonMd5 = MD5(jsonEncode(data)) 或 MD5(sortedQuery) 或 MD5("")
-  String _generateAuthx(String path, {Map<String, dynamic>? queryParameters, dynamic data}) {
+  String _generateAuthx(String path,
+      {Map<String, dynamic>? queryParameters, dynamic data}) {
     // nonce: 6 位随机数字（100000~999999）
     final random = DateTime.now().microsecond;
     final nonce = (100000 + random % 900000).toString();
@@ -1817,7 +2159,14 @@ class FnOSService extends EmbyService {
       dataJsonMd5 = _md5('');
     }
 
-    final signSource = [_fnosApiKey, path, nonce, timestamp, dataJsonMd5, _fnosApiSecret].join('_');
+    final signSource = [
+      _fnosApiKey,
+      path,
+      nonce,
+      timestamp,
+      dataJsonMd5,
+      _fnosApiSecret
+    ].join('_');
     return 'nonce=$nonce&timestamp=$timestamp&sign=${_md5(signSource)}';
   }
 
@@ -1854,13 +2203,16 @@ class FnOSService extends EmbyService {
       Response response;
       switch (method) {
         case 'POST':
-          response = await dio.post(url, data: data, options: Options(headers: headers));
+          response = await dio.post(url,
+              data: data, options: Options(headers: headers));
           break;
         case 'PUT':
-          response = await dio.put(url, data: data, options: Options(headers: headers));
+          response = await dio.put(url,
+              data: data, options: Options(headers: headers));
           break;
         case 'DELETE':
-          response = await dio.delete(url, data: data, options: Options(headers: headers));
+          response = await dio.delete(url,
+              data: data, options: Options(headers: headers));
           break;
         default:
           response = await dio.get(
@@ -1872,7 +2224,8 @@ class FnOSService extends EmbyService {
 
       final statusCode = response.statusCode ?? 0;
       if (statusCode < 200 || statusCode >= 300) {
-        AppLog.w('FnOS', 'HTTP $statusCode $method $fullPath, body=${response.data}');
+        AppLog.w('FnOS',
+            'HTTP $statusCode $method $fullPath, body=${response.data}');
         return null;
       }
 
@@ -1901,7 +2254,10 @@ class FnOSService extends EmbyService {
         AppLog.w('FnOS', '签名错误，重试...');
         await Future.delayed(const Duration(milliseconds: 500));
         return _fnosRequest(path,
-            data: data, queryParameters: queryParameters, method: method, retry: retry - 1);
+            data: data,
+            queryParameters: queryParameters,
+            method: method,
+            retry: retry - 1);
       } else {
         AppLog.w('FnOS', 'API错误 ${res['msg']} (code=$code)');
         return null;
@@ -1912,28 +2268,39 @@ class FnOSService extends EmbyService {
     }
   }
 
-  Future<Map<String, dynamic>?> _fnosGet(String p, {Map<String, dynamic>? query}) =>
+  Future<Map<String, dynamic>?> _fnosGet(String p,
+          {Map<String, dynamic>? query}) =>
       _fnosRequest(p, queryParameters: query, method: 'GET');
   Future<Map<String, dynamic>?> _fnosPost(String p, dynamic d) =>
       _fnosRequest(p, data: d, method: 'POST');
 
-  List<MediaItem> _fnosParseItems(List items) => items.map((i) => _fnosParseItem(i)).toList();
+  List<MediaItem> _fnosParseItems(List items) =>
+      items.map((i) => _fnosParseItem(i)).toList();
 
   MediaItem _fnosParseItem(dynamic item, [String? fallbackId]) {
     if (item is! Map) {
-      return MediaItem(id: fallbackId ?? '', title: '', posterUrl: '', type: MediaType.movie);
+      return MediaItem(
+          id: fallbackId ?? '',
+          title: '',
+          posterUrl: '',
+          type: MediaType.movie);
     }
     final m = Map<String, dynamic>.from(item);
-    final guid = m['guid']?.toString() ?? m['id']?.toString() ?? fallbackId ?? '';
+    final guid =
+        m['guid']?.toString() ?? m['id']?.toString() ?? fallbackId ?? '';
     final title = m['title']?.toString() ?? m['name']?.toString() ?? '';
     final typeStr = m['type']?.toString() ?? '';
     final typeLower = typeStr.toLowerCase();
-    final isSeries = typeStr == 'TV' || typeStr == 'Series' || typeStr == 'Season' ||
-        typeLower.contains('tv') || typeLower.contains('series');
+    final isSeries = typeStr == 'TV' ||
+        typeStr == 'Series' ||
+        typeStr == 'Season' ||
+        typeLower.contains('tv') ||
+        typeLower.contains('series');
     final isEpisode = typeStr == 'Episode' || typeLower.contains('episode');
 
     // FlyNarwhal MediaItem 字段映射
-    final yearStr = m['release_date']?.toString() ?? m['first_air_date']?.toString();
+    final yearStr =
+        m['release_date']?.toString() ?? m['first_air_date']?.toString();
     final voteAverage = m['vote_average'];
     final mediaStream = m['media_stream'];
     String? quality;
@@ -1950,8 +2317,9 @@ class FnOSService extends EmbyService {
 
     // 背景图：FnOS list API 常不带 backdrop 字段，解析为空时返回 null（与 Jellyfin 一致），
     // 以便 Hero 的 `backdropUrl ?? posterUrl` 能回退到海报，避免首页 Hero 纯暗色背景。
-    final backdrop =
-        _resolveImageUrl(m['backdrop'] ?? m['backdrops'] ?? m['background'], width: 1600);
+    final backdrop = _resolveImageUrl(
+        m['backdrop'] ?? m['backdrops'] ?? m['background'],
+        width: 1600);
 
     return MediaItem(
       id: guid,
@@ -1962,10 +2330,15 @@ class FnOSService extends EmbyService {
       rating: (voteAverage is num)
           ? voteAverage.toDouble()
           : double.tryParse(voteAverage?.toString() ?? ''),
-      year: yearStr != null && yearStr.length >= 4 ? int.tryParse(yearStr.substring(0, 4)) : null,
-      releaseDate: m['release_date']?.toString() ?? m['first_air_date']?.toString(),
+      year: yearStr != null && yearStr.length >= 4
+          ? int.tryParse(yearStr.substring(0, 4))
+          : null,
+      releaseDate:
+          m['release_date']?.toString() ?? m['first_air_date']?.toString(),
       genres: const [],
-      type: isSeries ? MediaType.series : (isEpisode ? MediaType.episode : MediaType.movie),
+      type: isSeries
+          ? MediaType.series
+          : (isEpisode ? MediaType.episode : MediaType.movie),
       duration: (m['duration'] as num?)?.toInt() ?? 0,
       seasonNumber: (m['season_number'] as num?)?.toInt(),
       episodeNumber: (m['episode_number'] as num?)?.toInt(),
@@ -1980,5 +2353,3 @@ class FnOSService extends EmbyService {
     );
   }
 }
-
-
