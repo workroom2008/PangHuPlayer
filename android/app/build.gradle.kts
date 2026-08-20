@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.lanplayer"
+    namespace = "com.panghuplayer"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -15,7 +15,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.lanplayer"
+        applicationId = "com.panghuplayer"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

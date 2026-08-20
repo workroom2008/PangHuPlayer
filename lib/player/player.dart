@@ -1,5 +1,5 @@
 // Player 模块统一导出
-// 使用方可以 `import 'package:lanplayer/player/player.dart';` 引入所有播放器模块
+// 使用方可以 `import 'package:panghu_player/player/player.dart';` 引入所有播放器模块
 
 // Core
 export 'core/player_engine.dart';

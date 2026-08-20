@@ -9,7 +9,7 @@ import '../../utils/app_log.dart';
 ///
 /// 当 libass 不可用时，回退到 Flutter 层的 SubtitleOverlay 渲染。
 class LibassBridge {
-  static const MethodChannel _channel = MethodChannel('com.lanplayer/libass');
+  static const MethodChannel _channel = MethodChannel('com.panghuplayer/libass');
   static bool _initialized = false;
   static bool _libassAvailable = false;
 

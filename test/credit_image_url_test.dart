@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:lanplayer/utils/credit_image_url.dart';
+import 'package:panghu_player/utils/credit_image_url.dart';
 
 void main() {
   test('优先使用服务端 ImageUrl', () {

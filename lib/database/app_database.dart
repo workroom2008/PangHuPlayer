@@ -294,7 +294,7 @@ class AppDatabase extends _$AppDatabase {
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final dbFolder = await _getApplicationDocumentsDirectory();
-    final file = File(p.join(dbFolder, 'lanplayer.db'));
+    final file = File(p.join(dbFolder, 'panghuplayer.db'));
     return NativeDatabase.createInBackground(file);
   });
 }

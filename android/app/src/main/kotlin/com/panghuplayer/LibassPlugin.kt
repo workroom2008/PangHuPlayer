@@ -1,4 +1,4 @@
-package com.lanplayer
+package com.panghuplayer
 
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -11,13 +11,13 @@ import io.flutter.embedding.engine.plugins.FlutterPlugin
  */
 class LibassPlugin: FlutterPlugin {
     companion object {
-        private const val CHANNEL = "com.lanplayer/libass"
+        private const val CHANNEL = "com.panghuplayer/libass"
 
         init {
             try {
-                System.loadLibrary("lanplayer_jni")
+                System.loadLibrary("panghuplayer_jni")
             } catch (e: UnsatisfiedLinkError) {
-                // lanplayer_jni 库不存在（未启用 CMake 构建）
+                // panghuplayer_jni 库不存在（未启用 CMake 构建）
             }
         }
     }

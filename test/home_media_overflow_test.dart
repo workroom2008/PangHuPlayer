@@ -3,13 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:lanplayer/models/media_models.dart';
-import 'package:lanplayer/providers/app_providers.dart';
-import 'package:lanplayer/providers/media_library_provider.dart';
-import 'package:lanplayer/screens/home/home_screen.dart';
-import 'package:lanplayer/services/media_server_service.dart';
-import 'package:lanplayer/services/storage_service.dart';
-import 'package:lanplayer/utils/screen_adapter.dart';
+import 'package:panghu_player/models/media_models.dart';
+import 'package:panghu_player/providers/app_providers.dart';
+import 'package:panghu_player/providers/media_library_provider.dart';
+import 'package:panghu_player/screens/home/home_screen.dart';
+import 'package:panghu_player/services/media_server_service.dart';
+import 'package:panghu_player/services/storage_service.dart';
+import 'package:panghu_player/utils/screen_adapter.dart';
 
 class _FakeHomeService extends EmbyService {
   _FakeHomeService() : super(baseUrl: 'http://test', apiKey: 'test-token');

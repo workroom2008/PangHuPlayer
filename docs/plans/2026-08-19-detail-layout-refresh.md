@@ -102,7 +102,7 @@ expect(find.byKey(const ValueKey('detail-play-button')), findsOneWidget);
 
 - [x] **Step 5: 构建并安装**
 
-命令：`flutter build apk --debug`；`adb -s 400DB303XH00000 install -r build/app/outputs/flutter-apk/app-debug.apk`；启动 `com.lanplayer` 并检查前台 Activity、进程和 `FATAL EXCEPTION`。
+命令：`flutter build apk --debug`；`adb -s 400DB303XH00000 install -r build/app/outputs/flutter-apk/app-debug.apk`；启动 `com.panghuplayer` 并检查前台 Activity、进程和 `FATAL EXCEPTION`。
 
 ## 计划自查
 

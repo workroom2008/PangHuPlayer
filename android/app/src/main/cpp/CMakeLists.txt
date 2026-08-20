@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
-project("lanplayer_native" LANGUAGES C CXX)
+project("panghuplayer_native" LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_C_STANDARD 11)
@@ -16,13 +16,13 @@ set(CMAKE_C_STANDARD 11)
 set(NATIVE_LIBS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/${ANDROID_ABI}")
 
 # JNI 桥接库（始终编译）
-add_library(lanplayer_jni SHARED
-    lanplayer_jni.cpp
+add_library(panghuplayer_jni SHARED
+    panghuplayer_jni.cpp
 )
 
 # 查找 Android 日志库
 find_library(log-lib log)
-target_link_libraries(lanplayer_jni ${log-lib})
+target_link_libraries(panghuplayer_jni ${log-lib})
 
 # ===== libass 集成 =====
 if(EXISTS "${NATIVE_LIBS_DIR}/libass.a")
@@ -46,18 +46,18 @@ if(EXISTS "${NATIVE_LIBS_DIR}/libass.a")
         IMPORTED_LOCATION "${NATIVE_LIBS_DIR}/libharfbuzz.a")
 
     # 头文件路径
-    target_include_directories(lanplayer_jni PRIVATE
+    target_include_directories(panghuplayer_jni PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         "${NATIVE_LIBS_DIR}/include"
     )
 
     # 链接
-    target_link_libraries(lanplayer_jni
+    target_link_libraries(panghuplayer_jni
         ass freetype fribidi harfbuzz
         ${log-lib}
     )
 
-    target_compile_definitions(lanplayer_jni PRIVATE HAS_LIBASS=1)
+    target_compile_definitions(panghuplayer_jni PRIVATE HAS_LIBASS=1)
 
 elseif(EXISTS "${NATIVE_LIBS_DIR}/libass.so")
     message(STATUS "Found libass (dynamic) for ${ANDROID_ABI}, enabling ASS subtitle rendering")
@@ -68,19 +68,19 @@ elseif(EXISTS "${NATIVE_LIBS_DIR}/libass.so")
         IMPORTED_LOCATION "${NATIVE_LIBS_DIR}/libass.so")
 
     # 头文件路径
-    target_include_directories(lanplayer_jni PRIVATE
+    target_include_directories(panghuplayer_jni PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
     )
 
     # 链接动态库
-    target_link_libraries(lanplayer_jni
+    target_link_libraries(panghuplayer_jni
         ass
         ${log-lib}
     )
 
-    target_compile_definitions(lanplayer_jni PRIVATE HAS_LIBASS=1)
+    target_compile_definitions(panghuplayer_jni PRIVATE HAS_LIBASS=1)
 
 else()
     message(STATUS "libass not found for ${ANDROID_ABI}, building stub only")
-    target_compile_definitions(lanplayer_jni PRIVATE HAS_LIBASS=0)
+    target_compile_definitions(panghuplayer_jni PRIVATE HAS_LIBASS=0)
 endif()

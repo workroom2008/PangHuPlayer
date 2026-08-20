@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lanplayer/widgets/track_selector_sheet.dart';
+import 'package:panghu_player/widgets/track_selector_sheet.dart';
 
 void main() {
   testWidgets('字幕轨道面板提供服务器字幕搜索入口', (tester) async {

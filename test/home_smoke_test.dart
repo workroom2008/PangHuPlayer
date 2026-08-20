@@ -5,8 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:lanplayer/screens/home/home_screen.dart';
-import 'package:lanplayer/services/storage_service.dart';
+import 'package:panghu_player/screens/home/home_screen.dart';
+import 'package:panghu_player/services/storage_service.dart';
 
 void main() {
   setUp(() async {

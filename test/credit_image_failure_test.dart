@@ -1,7 +1,7 @@
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:lanplayer/screens/detail/credit_image_failure.dart';
+import 'package:panghu_player/screens/detail/credit_image_failure.dart';
 
 void main() {
   test('只有服务器明确返回 404 或 410 才隐藏演员图片', () {

@@ -7,10 +7,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:lanplayer/models/media_models.dart';
-import 'package:lanplayer/providers/app_providers.dart';
-import 'package:lanplayer/services/storage_service.dart';
-import 'package:lanplayer/widgets/server_selector_chip.dart';
+import 'package:panghu_player/models/media_models.dart';
+import 'package:panghu_player/providers/app_providers.dart';
+import 'package:panghu_player/services/storage_service.dart';
+import 'package:panghu_player/widgets/server_selector_chip.dart';
 
 /// 固定服务器列表的 Notifier：绕开存储加载，直接注入长名称服务器
 class _FixedServersNotifier extends MediaServersNotifier {

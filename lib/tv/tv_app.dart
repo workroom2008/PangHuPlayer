@@ -30,14 +30,14 @@ final _tvDarkTheme = ThemeData(
 /// 2. 后台并行初始化各项服务（MediaKit/Storage/DB/Http）
 /// 3. 初始化完成后自动触发媒体库加载
 /// 4. 加载过程中显示转圈，加载完成后显示内容
-class LanPlayerTvApp extends ConsumerStatefulWidget {
-  const LanPlayerTvApp({super.key});
+class PangHuPlayerTvApp extends ConsumerStatefulWidget {
+  const PangHuPlayerTvApp({super.key});
 
   @override
-  ConsumerState<LanPlayerTvApp> createState() => _LanPlayerTvAppState();
+  ConsumerState<PangHuPlayerTvApp> createState() => _PangHuPlayerTvAppState();
 }
 
-class _LanPlayerTvAppState extends ConsumerState<LanPlayerTvApp> {
+class _PangHuPlayerTvAppState extends ConsumerState<PangHuPlayerTvApp> {
   /// 是否完成基础初始化（MediaKit/Storage/DB/Http）
   bool _initialized = false;
 
@@ -149,7 +149,7 @@ void mainTv() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(
     const ProviderScope(
-      child: LanPlayerTvApp(),
+      child: PangHuPlayerTvApp(),
     ),
   );
 }

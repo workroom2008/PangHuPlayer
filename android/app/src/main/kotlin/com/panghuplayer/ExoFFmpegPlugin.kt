@@ -1,4 +1,4 @@
-package com.lanplayer
+package com.panghuplayer
 
 import android.content.Context
 import android.graphics.SurfaceTexture
@@ -22,14 +22,14 @@ import io.flutter.embedding.engine.plugins.FlutterPlugin
  * 架构：
  * - Dart 层：ExoFFmpegEngine (lib/player/exo/exo_ffmpeg_engine.dart)
  * - 原生层：ExoFFmpegPlugin (本文件) + ExoFFmpegPlayer
- * - 通信：MethodChannel("com.lanplayer/exo_ffmpeg")
+ * - 通信：MethodChannel("com.panghuplayer/exo_ffmpeg")
  * - 渲染：PlatformView + TextureView（Virtual Display 兼容）
  */
 class ExoFFmpegPlugin: FlutterPlugin {
     companion object {
-        private const val CHANNEL = "com.lanplayer/exo_ffmpeg"
-        private const val STATE_CHANNEL = "com.lanplayer/exo_ffmpeg_state"
-        private const val VIEW_TYPE = "com.lanplayer/exo_ffmpeg_view"
+        private const val CHANNEL = "com.panghuplayer/exo_ffmpeg"
+        private const val STATE_CHANNEL = "com.panghuplayer/exo_ffmpeg_state"
+        private const val VIEW_TYPE = "com.panghuplayer/exo_ffmpeg_view"
     }
 
     private var player: ExoFFmpegPlayer? = null

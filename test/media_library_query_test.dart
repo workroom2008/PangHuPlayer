@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lanplayer/models/media_models.dart';
-import 'package:lanplayer/screens/media_library/media_library_query.dart';
+import 'package:panghu_player/models/media_models.dart';
+import 'package:panghu_player/screens/media_library/media_library_query.dart';
 
 MediaItem item({
   required String id,

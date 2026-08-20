@@ -104,7 +104,7 @@ class _OnlineSubtitleSearchSheetState extends State<OnlineSubtitleSearchSheet> {
       if (!mounted) return;
       final dir = await getTemporaryDirectory();
       final ext = item.fileName.toLowerCase().endsWith('.ass') ? 'ass' : 'srt';
-      final file = File('${dir.path}/lanplayer_os_${DateTime.now().millisecondsSinceEpoch}.$ext');
+      final file = File('${dir.path}/panghuplayer_os_${DateTime.now().millisecondsSinceEpoch}.$ext');
       await file.writeAsString(content);
       if (mounted) Navigator.of(context).pop(file.path);
     } catch (e) {

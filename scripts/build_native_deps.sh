@@ -23,7 +23,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 OUTPUT_DIR="$PROJECT_DIR/android/app/src/main/cpp/libs"
-BUILD_DIR="/tmp/lanplayer_native_build"
+BUILD_DIR="/tmp/panghuplayer_native_build"
 ABI="${1:-arm64-v8a}"
 
 # 检测 NDK

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lanplayer/services/server_subtitle_service.dart';
+import 'package:panghu_player/services/server_subtitle_service.dart';
 
 void main() {
   test('服务器字幕结果解析语言、标题、提供方和格式', () {

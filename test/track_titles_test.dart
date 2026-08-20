@@ -3,7 +3,7 @@
 // 引擎返回的是小写 key（title/language）。修复前详情页轨道选择 sheet
 // 只查小写 key，永远显示"轨 N"。这里验证公共解析器兼容两种形态。
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lanplayer/utils/track_titles.dart';
+import 'package:panghu_player/utils/track_titles.dart';
 
 void main() {
   group('trackDisplayTitle', () {

@@ -14,7 +14,7 @@ import 'storage_service.dart';
 /// 数据流：login → search → download(file_id) → gzip 解压 → UTF-8/GBK 解码 → SRT 内容
 class OpenSubtitlesService {
   static const _base = 'https://api.opensubtitles.com/api/v1';
-  static const _userAgent = 'LanPlayer v1.0';
+  static const _userAgent = 'PangHuPlayer v1.0';
 
   static const _keyApiKey = 'opensubtitles_api_key';
   static const _keyUsername = 'opensubtitles_username';

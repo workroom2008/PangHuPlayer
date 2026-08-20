@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:lanplayer/models/media_models.dart';
-import 'package:lanplayer/screens/detail/detail_screen.dart';
-import 'package:lanplayer/services/media_server_service.dart';
-import 'package:lanplayer/services/storage_service.dart';
+import 'package:panghu_player/models/media_models.dart';
+import 'package:panghu_player/screens/detail/detail_screen.dart';
+import 'package:panghu_player/services/media_server_service.dart';
+import 'package:panghu_player/services/storage_service.dart';
 
 class _FakeDetailService extends EmbyService {
   _FakeDetailService()

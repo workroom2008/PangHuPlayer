@@ -75,7 +75,7 @@ lib/
 android/
 └── app/src/main/
     ├── kotlin/…              # ExoPlayer 原生层（SurfaceView HDR、字幕叠加、FFmpeg 音频）
-    └── cpp/                  # libass JNI 桥（lanplayer_jni）
+    └── cpp/                  # libass JNI 桥（panghuplayer_jni）
 ```
 
 ## 📸 截图

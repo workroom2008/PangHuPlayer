@@ -1,5 +1,5 @@
 /**
- * lanplayer_jni.cpp — LAN Player 原生 JNI 桥接
+ * panghuplayer_jni.cpp — LAN Player 原生 JNI 桥接
  *
  * 提供以下原生功能：
  * 1. libass ASS/SSA 字幕渲染（当编译时启用 HAS_LIBASS）
@@ -13,7 +13,7 @@
 #include <cstring>
 #include <string>
 
-#define LOG_TAG "LanPlayerJNI"
+#define LOG_TAG "PangHuPlayerJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
@@ -30,7 +30,7 @@ static ASS_Track* g_assTrack = nullptr;
  * 初始化 libass 渲染器
  */
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_lanplayer_LibassBridge_nativeInit(JNIEnv* env, jclass clazz,
+Java_com_panghuplayer_LibassBridge_nativeInit(JNIEnv* env, jclass clazz,
                                             jint frameWidth, jint frameHeight) {
     if (g_assLibrary) {
         LOGI("libass already initialized, reinitializing...");
@@ -72,7 +72,7 @@ Java_com_lanplayer_LibassBridge_nativeInit(JNIEnv* env, jclass clazz,
  * 加载 ASS/SSA 字幕文件
  */
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_lanplayer_LibassBridge_nativeLoadFile(JNIEnv* env, jclass clazz,
+Java_com_panghuplayer_LibassBridge_nativeLoadFile(JNIEnv* env, jclass clazz,
                                                 jstring filePath) {
     if (!g_assLibrary) {
         LOGE("libass not initialized");
@@ -104,7 +104,7 @@ Java_com_lanplayer_LibassBridge_nativeLoadFile(JNIEnv* env, jclass clazz,
  * 从内存加载 ASS 字幕数据
  */
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_lanplayer_LibassBridge_nativeLoadData(JNIEnv* env, jclass clazz,
+Java_com_panghuplayer_LibassBridge_nativeLoadData(JNIEnv* env, jclass clazz,
                                                 jbyteArray data) {
     if (!g_assLibrary) return JNI_FALSE;
 
@@ -135,7 +135,7 @@ Java_com_lanplayer_LibassBridge_nativeLoadData(JNIEnv* env, jclass clazz,
  * 渲染指定时间点的字幕帧（返回 ARGB 像素数据）
  */
 extern "C" JNIEXPORT jbyteArray JNICALL
-Java_com_lanplayer_LibassBridge_nativeRender(JNIEnv* env, jclass clazz,
+Java_com_panghuplayer_LibassBridge_nativeRender(JNIEnv* env, jclass clazz,
                                               jlong timeMs,
                                               jint width, jint height) {
     if (!g_assRenderer || !g_assTrack) return nullptr;
@@ -196,7 +196,7 @@ Java_com_lanplayer_LibassBridge_nativeRender(JNIEnv* env, jclass clazz,
  * 释放 libass 资源
  */
 extern "C" JNIEXPORT void JNICALL
-Java_com_lanplayer_LibassBridge_nativeRelease(JNIEnv* env, jclass clazz) {
+Java_com_panghuplayer_LibassBridge_nativeRelease(JNIEnv* env, jclass clazz) {
     if (g_assTrack) { ass_free_track(g_assTrack); g_assTrack = nullptr; }
     if (g_assRenderer) { ass_renderer_done(g_assRenderer); g_assRenderer = nullptr; }
     if (g_assLibrary) { ass_library_done(g_assLibrary); g_assLibrary = nullptr; }
@@ -207,7 +207,7 @@ Java_com_lanplayer_LibassBridge_nativeRelease(JNIEnv* env, jclass clazz) {
  * 获取字幕事件总数
  */
 extern "C" JNIEXPORT jint JNICALL
-Java_com_lanplayer_LibassBridge_nativeGetEventCount(JNIEnv* env, jclass clazz) {
+Java_com_panghuplayer_LibassBridge_nativeGetEventCount(JNIEnv* env, jclass clazz) {
     return g_assTrack ? g_assTrack->n_events : 0;
 }
 
@@ -215,30 +215,30 @@ Java_com_lanplayer_LibassBridge_nativeGetEventCount(JNIEnv* env, jclass clazz) {
 // ===== libass 未编译时的桩实现 =====
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_lanplayer_LibassBridge_nativeInit(JNIEnv*, jclass, jint, jint) {
+Java_com_panghuplayer_LibassBridge_nativeInit(JNIEnv*, jclass, jint, jint) {
     return JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_lanplayer_LibassBridge_nativeLoadFile(JNIEnv*, jclass, jstring) {
+Java_com_panghuplayer_LibassBridge_nativeLoadFile(JNIEnv*, jclass, jstring) {
     return JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_lanplayer_LibassBridge_nativeLoadData(JNIEnv*, jclass, jbyteArray) {
+Java_com_panghuplayer_LibassBridge_nativeLoadData(JNIEnv*, jclass, jbyteArray) {
     return JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
-Java_com_lanplayer_LibassBridge_nativeRender(JNIEnv*, jclass, jlong, jint, jint) {
+Java_com_panghuplayer_LibassBridge_nativeRender(JNIEnv*, jclass, jlong, jint, jint) {
     return nullptr;
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_lanplayer_LibassBridge_nativeRelease(JNIEnv*, jclass) {}
+Java_com_panghuplayer_LibassBridge_nativeRelease(JNIEnv*, jclass) {}
 
 extern "C" JNIEXPORT jint JNICALL
-Java_com_lanplayer_LibassBridge_nativeGetEventCount(JNIEnv*, jclass) {
+Java_com_panghuplayer_LibassBridge_nativeGetEventCount(JNIEnv*, jclass) {
     return 0;
 }
 
@@ -250,7 +250,7 @@ Java_com_lanplayer_LibassBridge_nativeGetEventCount(JNIEnv*, jclass) {
  * 检测系统 HDR 显示能力
  */
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_lanplayer_LanPlayerJNI_nativeIsHdrDisplayAvailable(JNIEnv* env, jclass clazz) {
+Java_com_panghuplayer_PangHuPlayerJNI_nativeIsHdrDisplayAvailable(JNIEnv* env, jclass clazz) {
     // 需要 Android 8.0+ (API 26) 的 Display.HdrCapabilities
     // 通过 Java 层检测更可靠，此处返回 false 作为默认
     return JNI_FALSE;
@@ -260,7 +260,7 @@ Java_com_lanplayer_LanPlayerJNI_nativeIsHdrDisplayAvailable(JNIEnv* env, jclass 
  * 获取 GPU 渲染器名称
  */
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_lanplayer_LanPlayerJNI_nativeGetGpuRenderer(JNIEnv* env, jclass clazz) {
+Java_com_panghuplayer_PangHuPlayerJNI_nativeGetGpuRenderer(JNIEnv* env, jclass clazz) {
     // 需要通过 EGL 上下文获取，暂返回空
     return env->NewStringUTF("unknown");
 }

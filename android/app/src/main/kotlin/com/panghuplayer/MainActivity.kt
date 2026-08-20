@@ -1,4 +1,4 @@
-package com.lanplayer
+package com.panghuplayer
 
 import android.content.Context
 import android.content.res.Configuration
@@ -7,7 +7,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-    private val CHANNEL = "lanplayer/device"
+    private val CHANNEL = "panghuplayer/device"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

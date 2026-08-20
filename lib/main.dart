@@ -35,7 +35,7 @@ void main() async {
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent, statusBarIconBrightness: Brightness.light,
   ));
-  runApp(const ProviderScope(child: LanPlayerApp()));
+  runApp(const ProviderScope(child: PangHuPlayerApp()));
 }
 
 /// 判断当前设备是否为 TV
@@ -56,7 +56,7 @@ Future<bool> _isTvDevice() async {
 
 Future<String?> _getUiMode() async {
   // 通过 platform channel 获取 UI Mode（Android UiModeManager）
-  const platform = MethodChannel('lanplayer/device');
+  const platform = MethodChannel('panghuplayer/device');
   try {
     final result = await platform.invokeMethod<String>('getUiMode');
     return result?.toLowerCase();
@@ -65,8 +65,8 @@ Future<String?> _getUiMode() async {
   }
 }
 
-class LanPlayerApp extends ConsumerWidget {
-  const LanPlayerApp({super.key});
+class PangHuPlayerApp extends ConsumerWidget {
+  const PangHuPlayerApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

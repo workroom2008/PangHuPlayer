@@ -26,7 +26,7 @@ class DanmakuService {
       receiveTimeout: const Duration(seconds: 15),
     ));
     _dio.options.headers = {
-      'User-Agent': 'LANPlayer/1.0.0',
+      'User-Agent': 'PangHuPlayer/1.0.0',
       'Accept': 'application/json',
     };
   }

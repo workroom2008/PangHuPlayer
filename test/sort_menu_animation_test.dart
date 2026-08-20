@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:lanplayer/models/media_models.dart';
-import 'package:lanplayer/screens/home/home_screen.dart';
-import 'package:lanplayer/services/media_server_service.dart';
+import 'package:panghu_player/models/media_models.dart';
+import 'package:panghu_player/screens/home/home_screen.dart';
+import 'package:panghu_player/services/media_server_service.dart';
 
 class _SortTestService extends EmbyService {
   _SortTestService() : super(baseUrl: 'http://test', apiKey: 'test-token');

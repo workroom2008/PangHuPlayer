@@ -296,8 +296,8 @@ class EmbyService extends MediaServerService {
 
     AppLog.i('Emby', '尝试用户名密码登录: $_username');
     try {
-      final deviceId = 'LANPlayer_${DateTime.now().millisecondsSinceEpoch}';
-      final authHeader = 'MediaBrowser Client="LANPlayer", Device="LANPlayer", '
+      final deviceId = 'PangHuPlayer_${DateTime.now().millisecondsSinceEpoch}';
+      final authHeader = 'MediaBrowser Client="PangHuPlayer", Device="PangHuPlayer", '
           'DeviceId="$deviceId", Version="1.0.0"';
       final response = await dio.post(
         '$baseUrl/Users/AuthenticateByName',
@@ -1603,9 +1603,9 @@ class FnOSService extends EmbyService {
   Future<bool> _tryJellyfinLogin() async {
     AppLog.i('FnOS', '尝试 Jellyfin 兼容认证...');
     try {
-      final deviceId = 'LANPlayer_${DateTime.now().millisecondsSinceEpoch}';
+      final deviceId = 'PangHuPlayer_${DateTime.now().millisecondsSinceEpoch}';
       final authHeader =
-          'MediaBrowser Client="FnOSPlayer", Device="LANPlayer", '
+          'MediaBrowser Client="FnOSPlayer", Device="PangHuPlayer", '
           'DeviceId="$deviceId", Version="1.0.0"';
       final response = await dio.post(
         '$baseUrl/Users/AuthenticateByName',
@@ -1961,10 +1961,10 @@ class FnOSService extends EmbyService {
           'ts': positionMs ~/ 1000,
           'duration': 0,
           'play_link': '',
-          'device_id': 'LANPlayer',
+          'device_id': 'PangHuPlayer',
           'direct_link_audio_index': 0,
           'lan': 'original',
-          'device_name': 'LANPlayer',
+          'device_name': 'PangHuPlayer',
         });
         return;
       }

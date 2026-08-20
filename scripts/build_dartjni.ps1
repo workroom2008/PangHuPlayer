@@ -4,7 +4,7 @@ $ndkRoot  = "D:\androidsdk\ndk\28.2.13676358"
 $sysroot  = "$ndkRoot\toolchains\llvm\prebuilt\windows-x86_64\sysroot"
 $clangDir = "$ndkRoot\toolchains\llvm\prebuilt\windows-x86_64\bin"
 $srcDir   = "C:\Users\Administrator.DESKTOP-MLRSCTT\AppData\Local\Pub\Cache\hosted\pub.dev\jni-1.0.0\src"
-$outRoot  = "D:\Trae CN\torrent\player\lanplayer\build\jni_native_prebuilt"
+$outRoot  = "D:\Trae CN\torrent\player\panghuplayer\build\jni_native_prebuilt"
 
 if (-not (Test-Path $outRoot)) { New-Item -ItemType Directory -Path $outRoot -Force | Out-Null }
 

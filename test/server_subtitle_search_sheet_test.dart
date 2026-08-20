@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lanplayer/services/media_server_service.dart';
-import 'package:lanplayer/services/server_subtitle_service.dart';
-import 'package:lanplayer/widgets/server_subtitle_search_sheet.dart';
+import 'package:panghu_player/services/media_server_service.dart';
+import 'package:panghu_player/services/server_subtitle_service.dart';
+import 'package:panghu_player/widgets/server_subtitle_search_sheet.dart';
 
 class _FakeSubtitleService extends EmbyService {
   _FakeSubtitleService()

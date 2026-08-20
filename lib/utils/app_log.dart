@@ -28,7 +28,7 @@ class AppLog {
     // 2. developer.log → Dart VM Service（需要连 Observatory 才能看到）
     final line = '[$level/$tag] $msg';
     debugPrint(line);
-    developer.log(line, name: 'lanplayer');
+    developer.log(line, name: 'panghuplayer');
   }
 }
 

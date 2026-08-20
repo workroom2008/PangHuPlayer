@@ -12,7 +12,7 @@ import '../../../utils/app_log.dart';
 /// - 视频继续使用 MediaCodec 硬解，仅音频走 FFmpeg 软解
 class FFmpegAudioExtension {
   static const MethodChannel _channel =
-      MethodChannel('com.lanplayer/exo_ffmpeg');
+      MethodChannel('com.panghuplayer/exo_ffmpeg');
 
   /// 检查 FFmpeg 音频扩展是否可用（原生层已加载 .so）
   static Future<bool> isAvailable() async {

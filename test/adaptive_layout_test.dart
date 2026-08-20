@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:lanplayer/utils/adaptive_layout.dart';
+import 'package:panghu_player/utils/adaptive_layout.dart';
 
 void main() {
   test('媒体库列数按宽度自适应并限制范围', () {

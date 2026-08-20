@@ -1,5 +1,5 @@
-name: lanplayer
-description: LAN Player - A beautiful media player with Emby/Jellyfin/MoviePilot support
+name: panghu_player
+description: PangHuPlayer - A beautiful media player with Emby/Jellyfin/MoviePilot support
 publish_to: 'none'
 version: 0.135.0+1
 

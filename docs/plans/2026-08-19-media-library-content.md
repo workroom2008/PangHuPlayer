@@ -38,8 +38,8 @@
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lanplayer/models/media_models.dart';
-import 'package:lanplayer/screens/media_library/media_library_query.dart';
+import 'package:panghu_player/models/media_models.dart';
+import 'package:panghu_player/screens/media_library/media_library_query.dart';
 
 MediaItem item({
   required String id,
@@ -438,9 +438,9 @@ git commit -m "feat: 增加统一媒体库内容页"
 在 `test/media_library_entry_points_test.dart` 新增测试，分别 import：
 
 ```dart
-import 'package:lanplayer/screens/home/home_screen.dart' as home;
-import 'package:lanplayer/screens/servers/media_library_screen.dart' as servers;
-import 'package:lanplayer/screens/media_library/media_library_items_screen.dart' as shared;
+import 'package:panghu_player/screens/home/home_screen.dart' as home;
+import 'package:panghu_player/screens/servers/media_library_screen.dart' as servers;
+import 'package:panghu_player/screens/media_library/media_library_items_screen.dart' as shared;
 ```
 
 测试主体使用 `Type` 比较验证导出类型：

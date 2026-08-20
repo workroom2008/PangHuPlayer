@@ -270,7 +270,7 @@ git commit -m "feat: 在详情页支持服务器字幕搜索下载"
 
 - [ ] **Step 4: 安装并启动平板应用**
 
-命令：`& 'C:\Users\hongbo\AppData\Local\Android\Sdk\platform-tools\adb.exe' -s 400DB303XH00000 install -r 'build\app\outputs\flutter-apk\app-debug.apk'`；随后启动 `com.lanplayer`，检查前台 Activity、进程和最近日志无崩溃。
+命令：`& 'C:\Users\hongbo\AppData\Local\Android\Sdk\platform-tools\adb.exe' -s 400DB303XH00000 install -r 'build\app\outputs\flutter-apk\app-debug.apk'`；随后启动 `com.panghuplayer`，检查前台 Activity、进程和最近日志无崩溃。
 
 - [ ] **Step 5: 提交验证结果**
 

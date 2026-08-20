@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:lanplayer/services/media_server_service.dart';
+import 'package:panghu_player/services/media_server_service.dart';
 
 class _PeopleAdapter implements HttpClientAdapter {
   @override

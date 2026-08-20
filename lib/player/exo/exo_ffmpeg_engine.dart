@@ -28,10 +28,10 @@ import 'ffmpeg_audio_extension.dart';
 /// - AndroidX Media3 的 media3-decoder-ffmpeg（Renderer 扩展接口）
 class ExoFFmpegEngine implements PlayerEngine {
   // MethodChannel 通信
-  static const MethodChannel _channel = MethodChannel('com.lanplayer/exo_ffmpeg');
+  static const MethodChannel _channel = MethodChannel('com.panghuplayer/exo_ffmpeg');
   // 状态推送：原生 ExoPlayer 事件 + 250ms 定时推（替代 Dart 侧轮询 getState）
-  static const EventChannel _stateChannel = EventChannel('com.lanplayer/exo_ffmpeg_state');
-  static const String _viewType = 'com.lanplayer/exo_ffmpeg_view';
+  static const EventChannel _stateChannel = EventChannel('com.panghuplayer/exo_ffmpeg_state');
+  static const String _viewType = 'com.panghuplayer/exo_ffmpeg_view';
 
   bool _isInitialized = false;
   bool _isFFmpegAvailable = false;
