@@ -62,3 +62,6 @@ android_bak/
 .hermes/
 # android 构建残留报告
 android/build/reports/
+# 根目录会话/提示词草稿（不提交）
+会话摘要.txt
+提示词新.txt
